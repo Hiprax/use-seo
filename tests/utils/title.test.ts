@@ -1,0 +1,160 @@
+/**
+ * Tests for title utility functions
+ */
+
+import {
+  formatTitle,
+  validateTitleLength,
+  validateDescriptionLength,
+  validateKeywordsCount,
+  DEFAULT_TITLE_SEPARATOR,
+} from '../../src/utils/title';
+
+describe('formatTitle', () => {
+  it('returns undefined for empty input', () => {
+    expect(formatTitle('')).toBeUndefined();
+    expect(formatTitle(undefined)).toBeUndefined();
+    expect(formatTitle('   ')).toBeUndefined();
+  });
+
+  it('returns base title when no options provided', () => {
+    expect(formatTitle('My Title')).toBe('My Title');
+  });
+
+  it('applies template with {title} placeholder', () => {
+    expect(
+      formatTitle('Contact', { template: '{title} - My Site' })
+    ).toBe('Contact - My Site');
+  });
+
+  it('applies template with %s placeholder', () => {
+    expect(formatTitle('Contact', { template: '%s | My Site' })).toBe(
+      'Contact | My Site'
+    );
+  });
+
+  it('replaces multiple %s placeholders', () => {
+    expect(formatTitle('Test', { template: '%s - %s' })).toBe('Test - Test');
+  });
+
+  it('appends template with separator when no placeholder', () => {
+    expect(formatTitle('Page', { template: 'My Site' })).toBe(
+      `Page${DEFAULT_TITLE_SEPARATOR}My Site`
+    );
+  });
+
+  it('applies prefix', () => {
+    expect(formatTitle('Contact', { prefix: 'MyBrand' })).toBe(
+      'MyBrand | Contact'
+    );
+  });
+
+  it('applies suffix', () => {
+    expect(formatTitle('Contact', { suffix: 'MyBrand' })).toBe(
+      'Contact | MyBrand'
+    );
+  });
+
+  it('applies both prefix and suffix', () => {
+    expect(
+      formatTitle('Contact', { prefix: 'Prefix', suffix: 'Suffix' })
+    ).toBe('Prefix | Contact | Suffix');
+  });
+
+  it('uses custom separator', () => {
+    expect(
+      formatTitle('Contact', { suffix: 'Site', separator: ' - ' })
+    ).toBe('Contact - Site');
+  });
+
+  it('template takes priority over prefix/suffix', () => {
+    expect(
+      formatTitle('Contact', {
+        template: '%s | Template',
+        prefix: 'Prefix',
+        suffix: 'Suffix',
+      })
+    ).toBe('Contact | Template');
+  });
+
+  it('trims whitespace from title', () => {
+    expect(formatTitle('  My Title  ')).toBe('My Title');
+  });
+
+  it('handles empty prefix/suffix', () => {
+    expect(formatTitle('Title', { prefix: '', suffix: '' })).toBe('Title');
+    expect(formatTitle('Title', { prefix: '   ', suffix: '   ' })).toBe('Title');
+  });
+
+  it('handles non-string input gracefully', () => {
+    expect(formatTitle(123 as unknown as string)).toBeUndefined();
+    expect(formatTitle(null as unknown as string)).toBeUndefined();
+  });
+});
+
+describe('validateTitleLength', () => {
+  it('returns warning for title > 60 characters', () => {
+    const longTitle = 'A'.repeat(65);
+    const warnings = validateTitleLength(longTitle);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('65 characters');
+  });
+
+  it('returns warning for title < 30 characters', () => {
+    const shortTitle = 'Short';
+    const warnings = validateTitleLength(shortTitle);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('5 characters');
+  });
+
+  it('returns no warning for optimal length', () => {
+    const optimalTitle = 'A'.repeat(45);
+    const warnings = validateTitleLength(optimalTitle);
+    expect(warnings.length).toBe(0);
+  });
+});
+
+describe('validateDescriptionLength', () => {
+  it('returns warning for description > 160 characters', () => {
+    const longDesc = 'A'.repeat(170);
+    const warnings = validateDescriptionLength(longDesc);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('170 characters');
+  });
+
+  it('returns warning for description < 120 characters', () => {
+    const shortDesc = 'Short description';
+    const warnings = validateDescriptionLength(shortDesc);
+    expect(warnings.length).toBe(1);
+  });
+
+  it('returns no warning for optimal length', () => {
+    const optimalDesc = 'A'.repeat(140);
+    const warnings = validateDescriptionLength(optimalDesc);
+    expect(warnings.length).toBe(0);
+  });
+});
+
+describe('validateKeywordsCount', () => {
+  it('returns warning for > 10 keywords', () => {
+    const keywords = Array(15)
+      .fill('keyword')
+      .join(',');
+    const warnings = validateKeywordsCount(keywords);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('15');
+  });
+
+  it('returns no warning for <= 10 keywords', () => {
+    const keywords = 'a,b,c,d,e';
+    const warnings = validateKeywordsCount(keywords);
+    expect(warnings.length).toBe(0);
+  });
+
+  it('ignores empty keywords', () => {
+    const keywords = 'a, , b, , c';
+    const warnings = validateKeywordsCount(keywords);
+    expect(warnings.length).toBe(0);
+  });
+});
+
