@@ -1,10 +1,40 @@
 # use-seo
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 [![npm version](https://img.shields.io/npm/v/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
+[![npm downloads](https://img.shields.io/npm/dm/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
 
 A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Cards, structured data (JSON-LD), and more. Fully typed with TypeScript and optimized for all React versions (16.8+).
+
+**[View on NPM](https://www.npmjs.com/package/@hiprax/use-seo)** | **[GitHub Repository](https://github.com/Hiprax/use-seo)**
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+  - [Basic SEO](#basic-seo)
+  - [Title Formatting](#title-formatting)
+  - [Open Graph](#open-graph)
+  - [Twitter Cards](#twitter-cards)
+  - [Article Metadata](#article-metadata)
+  - [Robots Directives](#robots-directives)
+  - [International SEO (Hreflang)](#international-seo-hreflang)
+  - [Pagination](#pagination)
+  - [Structured Data (JSON-LD)](#structured-data-json-ld)
+  - [Additional Custom Tags](#additional-custom-tags)
+  - [Advanced Options](#advanced-options)
+- [Hook Return Methods](#hook-return-methods)
+- [TypeScript Support](#typescript-support)
+- [SSR Considerations](#ssr-considerations)
+- [Constants](#constants)
+- [Best Practices](#best-practices)
+- [Development](#development)
+- [Browser Support](#browser-support)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -25,10 +55,21 @@ A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Ca
 npm install @hiprax/use-seo
 ```
 
+```bash
+yarn add @hiprax/use-seo
+```
+
+```bash
+pnpm add @hiprax/use-seo
+```
+
+**Peer dependencies:** `react` >= 16.8.0 and `react-dom` >= 16.8.0
+
 ## Quick Start
 
 ```tsx
 import { useSEO } from '@hiprax/use-seo';
+// or: import useSEO from '@hiprax/use-seo';
 
 function ProductPage() {
   useSEO({
@@ -99,6 +140,14 @@ useSEO({
   title: 'Contact',
   titleTemplate: '{title} | Brand',
 });
+
+// With custom separator (default: ' | ')
+useSEO({
+  title: 'Contact',
+  titleSuffix: 'My Site',
+  titleSeparator: ' - ',
+  // Result: "Contact - My Site"
+});
 ```
 
 ### Open Graph
@@ -140,6 +189,7 @@ useSEO({
       height: 630,
       alt: 'Primary image',
       type: 'image/jpeg',
+      secureUrl: 'https://example.com/image1.jpg', // optional, auto-inferred for https URLs
     },
     {
       url: 'https://example.com/image2.png',
@@ -220,6 +270,8 @@ useSEO({
   },
 });
 ```
+
+> **Note:** The deprecated boolean props `noindex`, `nofollow`, `noarchive`, `nosnippet`, and `noimageindex` are still supported for backwards compatibility, but using the `robots` object format above is preferred.
 
 ### International SEO (Hreflang)
 
@@ -340,6 +392,17 @@ useSEO({
 });
 ```
 
+### Automatic Behavior
+
+The hook automatically handles several things behind the scenes:
+
+- **Essential meta tags**: Ensures `<meta charset="UTF-8">` and `<meta name="viewport" content="width=device-width, initial-scale=1.0">` exist in the document head, creating them if missing.
+- **Change detection**: Uses JSON serialization to skip DOM updates when the configuration has not changed between renders.
+- **Element tracking**: All elements created by the hook are marked with a `data-use-seo` attribute for identification and cleanup.
+- **Image MIME type inference**: Automatically infers `og:image:type` from the image URL file extension (supports jpg, png, gif, webp, svg, ico, avif).
+- **Secure URL inference**: Automatically sets `og:image:secure_url` when the image URL starts with `https:`.
+- **Language normalization**: Validates and normalizes BCP 47 language tags using `Intl.getCanonicalLocales` when available.
+
 ## Hook Return Methods
 
 The hook returns an object with methods for programmatic tag management:
@@ -411,11 +474,12 @@ export const metadata = {
   description: 'Static description',
 };
 
-// For dynamic client-side updates:
+// For dynamic client-side updates, create a client component:
+// app/components/DynamicSection.tsx
 ('use client');
 import { useSEO } from '@hiprax/use-seo';
 
-function DynamicSection({ dynamicTitle }) {
+function DynamicSection({ dynamicTitle }: { dynamicTitle: string }) {
   useSEO({
     title: dynamicTitle,
   });
@@ -502,13 +566,73 @@ import {
 - Use absolute URLs
 - Point to the preferred version of the page
 
+## Development
+
+This project uses [tsup](https://tsup.egoist.dev/) for bundling and outputs both ESM and CJS formats with TypeScript declarations and sourcemaps.
+
+### Available Scripts
+
+```bash
+# Build the library (uses tsup)
+npm run build
+
+# Watch mode for development
+npm run dev
+
+# Run tests
+npm run test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+
+# Lint source files
+npm run lint
+
+# Lint and auto-fix
+npm run lint:fix
+
+# Format source files with Prettier
+npm run format
+
+# Check formatting without writing
+npm run format:check
+
+# TypeScript type checking (no emit)
+npm run typecheck
+
+# Remove dist and coverage directories
+npm run clean
+```
+
+### Project Structure
+
+```
+src/
+  index.ts          # Public API exports
+  useSEO.ts         # Main hook implementation
+  types.ts          # TypeScript type definitions
+  constants.ts      # Default values and limits
+  utils/
+    index.ts        # Barrel re-export for utilities
+    dom.ts          # DOM manipulation helpers
+    validation.ts   # URL and language validation
+    robots.ts       # Robots directive builder
+    title.ts        # Title formatting logic
+    warnings.ts     # Development warning utilities
+```
+
 ## Browser Support
 
 Supports all modern browsers and IE11+ (with appropriate polyfills).
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines and submit pull requests to our repository.
+Contributions are welcome! Please submit pull requests to the [GitHub repository](https://github.com/Hiprax/use-seo). See the [Development](#development) section above for setup instructions.
+
+To report bugs or request features, please use [GitHub Issues](https://github.com/Hiprax/use-seo/issues).
 
 ## License
 

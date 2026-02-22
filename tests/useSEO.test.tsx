@@ -446,7 +446,11 @@ describe('useSEO Hook', () => {
       expect(getMetaContent('meta[name="robots"]')).toBe('noindex');
 
       rerender({});
-      // The robots meta should be removed
+      // The marked robots meta should be removed from the DOM
+      const markedRobots = document.querySelector(
+        `meta[name="robots"][${SEO_MARKER}="true"]`
+      );
+      expect(markedRobots).toBeNull();
     });
   });
 
@@ -667,13 +671,24 @@ describe('useSEO Hook', () => {
 
       // Should have meta tags
       expect(document.querySelector('meta[name="description"]')).not.toBeNull();
+      expect(
+        document.querySelector('meta[property="og:title"]')
+      ).not.toBeNull();
 
       act(() => {
         result.current.clearSEOTags();
       });
 
-      // Elements added by hook should be removed
-      // Note: Some elements may persist if they weren't added by the hook
+      // Elements with the SEO marker that were tracked should be removed
+      const markedDescription = document.querySelector(
+        `meta[name="description"][${SEO_MARKER}="true"]`
+      );
+      expect(markedDescription).toBeNull();
+
+      const markedOgTitle = document.querySelector(
+        `meta[property="og:title"][${SEO_MARKER}="true"]`
+      );
+      expect(markedOgTitle).toBeNull();
     });
 
     it('getCurrentSEO returns current config snapshot', () => {
@@ -726,14 +741,15 @@ describe('useSEO Hook', () => {
     it('skips invalid URLs when validateUrls is true', () => {
       renderHook(() =>
         useSEO({
-          ogImage: 'not-a-valid-url',
+          ogImage: 'http://[invalid',
           validateUrls: true,
           enableWarnings: false,
+          autoCanonical: false,
         })
       );
 
-      // Invalid URL should not be set
-      // og:image should not exist or have different value
+      // Truly invalid URL should not be set as og:image
+      expect(getMetaContent('meta[property="og:image"]')).toBeNull();
     });
 
     it('allows relative URLs', () => {
@@ -1066,5 +1082,374 @@ describe('Additional Edge Cases', () => {
     );
     expect(altWarnings.length).toBe(0);
     warnSpy.mockRestore();
+  });
+
+  it('titleSeparator prop customizes the separator', () => {
+    renderHook(() =>
+      useSEO({
+        title: 'Contact',
+        titleSuffix: 'My Site',
+        titleSeparator: ' - ',
+      })
+    );
+    expect(document.title).toBe('Contact - My Site');
+  });
+
+  it('titleSeparator prop works with titlePrefix', () => {
+    renderHook(() =>
+      useSEO({
+        title: 'Contact',
+        titlePrefix: 'My Site',
+        titleSeparator: ' :: ',
+      })
+    );
+    expect(document.title).toBe('My Site :: Contact');
+  });
+
+  it('skips invalid ogImage URL when validateUrls is true', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        ogImage: 'http://[invalid',
+        validateUrls: true,
+        enableWarnings: true,
+        autoCanonical: false,
+      })
+    );
+
+    // og:image should not be set for invalid URL
+    expect(getMetaContent('meta[property="og:image"]')).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('sets valid ogImage URL when validateUrls is true', () => {
+    renderHook(() =>
+      useSEO({
+        ogImage: 'https://example.com/valid.jpg',
+        validateUrls: true,
+        enableWarnings: false,
+        autoCanonical: false,
+      })
+    );
+
+    expect(getMetaContent('meta[property="og:image"]')).toBe(
+      'https://example.com/valid.jpg'
+    );
+  });
+
+  it('skips invalid ogImages entries when validateUrls is true', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        ogImages: [
+          { url: 'http://[invalid', alt: 'Bad image' },
+          { url: 'https://example.com/valid.jpg', alt: 'Good image' },
+        ],
+        validateUrls: true,
+        enableWarnings: true,
+        autoCanonical: false,
+      })
+    );
+
+    // Only the valid image should be created
+    const images = document.querySelectorAll('meta[property="og:image"]');
+    expect(images.length).toBe(1);
+    expect(images[0]?.getAttribute('content')).toBe(
+      'https://example.com/valid.jpg'
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('skips invalid twitterImage URL when validateUrls is true', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterImage: 'http://[invalid',
+        validateUrls: true,
+        enableWarnings: true,
+        autoCanonical: false,
+      })
+    );
+
+    // twitter:image should not be set for invalid URL
+    expect(getMetaContent('meta[name="twitter:image"]')).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('additionalMetaTags without any key identifier are skipped', () => {
+    renderHook(() =>
+      useSEO({
+        additionalMetaTags: [
+          // This tag has no name, property, or httpEquiv - should be skipped
+          { content: 'no-key-tag' } as { content: string },
+          // This tag has a name - should be created
+          { name: 'valid-tag', content: 'valid content' },
+        ],
+      })
+    );
+
+    expect(getMetaContent('meta[name="valid-tag"]')).toBe('valid content');
+    // The tag without any key should not have been created
+    // We can verify by checking there's no meta with content "no-key-tag"
+    const allMetas = document.querySelectorAll('meta');
+    const noKeyMeta = Array.from(allMetas).find(
+      (m) => m.getAttribute('content') === 'no-key-tag'
+    );
+    expect(noKeyMeta).toBeUndefined();
+  });
+
+  it('elements removed via removeMarkedElements are cleaned from addedElements', () => {
+    // Render hook with ogImages, then re-render with different ogImages.
+    // The removeMarkedElements call should clean elements from the Set,
+    // preventing stale references (memory leak).
+    const { result, rerender } = renderHook(
+      (
+        props: {
+          ogImages?: { url: string; alt?: string }[];
+          enableWarnings?: boolean;
+        } = {}
+      ) => useSEO(props),
+      {
+        initialProps: {
+          ogImages: [
+            {
+              url: 'https://example.com/image1.jpg',
+              alt: 'Image 1',
+            },
+          ],
+          enableWarnings: false,
+        },
+      }
+    );
+
+    // First render should have og:image tags
+    expect(getMetaContent('meta[property="og:image"]')).toBe(
+      'https://example.com/image1.jpg'
+    );
+
+    // Re-render with different images
+    rerender({
+      ogImages: [
+        {
+          url: 'https://example.com/image2.jpg',
+          alt: 'Image 2',
+        },
+      ],
+      enableWarnings: false,
+    });
+
+    // The new image should be present
+    expect(getMetaContent('meta[property="og:image"]')).toBe(
+      'https://example.com/image2.jpg'
+    );
+
+    // clearSEOTags should clear everything that is still tracked
+    act(() => {
+      result.current.clearSEOTags();
+    });
+
+    // After clearing, og:image for image2 should be removed
+    // The old image1 references should NOT remain (memory leak fix)
+    const remainingOgImages = document.querySelectorAll(
+      `meta[property="og:image"][${SEO_MARKER}="true"]`
+    );
+    expect(remainingOgImages.length).toBe(0);
+  });
+
+  it('ogImages takes precedence over ogImage when both provided', () => {
+    renderHook(() =>
+      useSEO({
+        ogImage: 'https://example.com/single.jpg',
+        ogImages: [
+          { url: 'https://example.com/multi1.jpg', alt: 'Multi 1' },
+          { url: 'https://example.com/multi2.jpg', alt: 'Multi 2' },
+        ],
+      })
+    );
+
+    const images = document.querySelectorAll('meta[property="og:image"]');
+    expect(images.length).toBe(2);
+    expect(images[0]?.getAttribute('content')).toBe(
+      'https://example.com/multi1.jpg'
+    );
+    expect(images[1]?.getAttribute('content')).toBe(
+      'https://example.com/multi2.jpg'
+    );
+  });
+
+  it('falls back twitter:title to ogTitle when ogTitle is set', () => {
+    renderHook(() =>
+      useSEO({
+        title: 'Page Title',
+        ogTitle: 'OG Specific Title',
+      })
+    );
+
+    // twitter:title should fall back to ogTitle, not title
+    expect(getMetaContent('meta[name="twitter:title"]')).toBe(
+      'OG Specific Title'
+    );
+  });
+
+  it('falls back twitter:description to ogDescription', () => {
+    renderHook(() =>
+      useSEO({
+        description: 'Page description',
+        ogDescription: 'OG specific description',
+      })
+    );
+
+    // twitter:description should fall back to ogDescription, not description
+    expect(getMetaContent('meta[name="twitter:description"]')).toBe(
+      'OG specific description'
+    );
+  });
+
+  it('og:url falls back to effective canonical URL', () => {
+    renderHook(() =>
+      useSEO({
+        canonical: 'https://example.com/canonical-page',
+        autoCanonical: false,
+      })
+    );
+
+    expect(getMetaContent('meta[property="og:url"]')).toBe(
+      'https://example.com/canonical-page'
+    );
+  });
+
+  it('replaces JSON-LD scripts on re-render', () => {
+    const { rerender } = renderHook(
+      (props: { structuredData?: object }) => useSEO(props),
+      {
+        initialProps: {
+          structuredData: {
+            '@context': 'https://schema.org',
+            '@type': 'Article',
+            headline: 'First',
+          },
+        },
+      }
+    );
+
+    let scripts = document.querySelectorAll(
+      'script[type="application/ld+json"]'
+    );
+    expect(scripts.length).toBe(1);
+    expect(scripts[0]?.textContent).toContain('First');
+
+    rerender({
+      structuredData: {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'Second',
+      },
+    });
+
+    scripts = document.querySelectorAll('script[type="application/ld+json"]');
+    expect(scripts.length).toBe(1);
+    expect(scripts[0]?.textContent).toContain('Second');
+    expect(scripts[0]?.textContent).not.toContain('First');
+  });
+
+  it('cleans up ogLocaleAlternates on re-render', () => {
+    const { rerender } = renderHook(
+      (props: { ogLocaleAlternates?: string[] }) => useSEO(props),
+      {
+        initialProps: {
+          ogLocaleAlternates: ['en_GB', 'de_DE'],
+        },
+      }
+    );
+
+    let alternates = document.querySelectorAll(
+      'meta[property="og:locale:alternate"]'
+    );
+    expect(alternates.length).toBe(2);
+
+    rerender({ ogLocaleAlternates: ['fr_FR'] });
+
+    alternates = document.querySelectorAll(
+      'meta[property="og:locale:alternate"]'
+    );
+    expect(alternates.length).toBe(1);
+    expect(alternates[0]?.getAttribute('content')).toBe('fr_FR');
+  });
+
+  it('updates hreflang links on re-render', () => {
+    const { rerender } = renderHook(
+      (
+        props: { hreflangs?: { href: string; hrefLang: string }[] } = {}
+      ) => useSEO(props),
+      {
+        initialProps: {
+          hreflangs: [
+            { href: 'https://example.com/en/', hrefLang: 'en' },
+            { href: 'https://example.com/de/', hrefLang: 'de' },
+          ],
+        },
+      }
+    );
+
+    let hreflangs = document.querySelectorAll(
+      'link[rel="alternate"][hreflang]'
+    );
+    expect(hreflangs.length).toBe(2);
+
+    rerender({
+      hreflangs: [
+        { href: 'https://example.com/fr/', hrefLang: 'fr' },
+      ],
+    });
+
+    hreflangs = document.querySelectorAll(
+      `link[rel="alternate"][hreflang][${SEO_MARKER}="true"]`
+    );
+    // Old hreflang links should be removed, only the new one should exist
+    expect(hreflangs.length).toBe(1);
+    const frLink = document.querySelector(
+      'link[rel="alternate"][hreflang="fr"]'
+    );
+    expect(frLink).not.toBeNull();
+    expect(frLink?.getAttribute('href')).toBe('https://example.com/fr/');
+  });
+
+  it('updateMetaTag with httpEquiv via legacy signature', () => {
+    const { result } = renderHook(() => useSEO({}));
+
+    act(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call
+      (result.current.updateMetaTag as any)(
+        'refresh',
+        '5',
+        undefined,
+        'refresh'
+      );
+    });
+
+    expect(getMetaContent('meta[http-equiv="refresh"]')).toBe('5');
+  });
+
+  it('getCurrentSEO returns a copy that does not mutate internal state', () => {
+    const { result, rerender } = renderHook(
+      (props: { title?: string }) => useSEO(props),
+      { initialProps: { title: 'Original' } }
+    );
+
+    const snapshot1 = result.current.getCurrentSEO();
+    expect(snapshot1.title).toBe('Original');
+
+    rerender({ title: 'Updated' });
+
+    const snapshot2 = result.current.getCurrentSEO();
+    expect(snapshot2.title).toBe('Updated');
+    // Original snapshot should not be affected
+    expect(snapshot1.title).toBe('Original');
   });
 });

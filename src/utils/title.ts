@@ -3,6 +3,14 @@
  * @module use-seo/utils/title
  */
 
+import {
+  MIN_TITLE_LENGTH,
+  MAX_TITLE_LENGTH,
+  MIN_DESCRIPTION_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_KEYWORDS_COUNT,
+} from '../constants';
+
 /**
  * Options for title formatting.
  */
@@ -121,13 +129,13 @@ export function validateTitleLength(title: string): string[] {
   const warnings: string[] = [];
   const length = title.length;
 
-  if (length > 60) {
+  if (length > MAX_TITLE_LENGTH) {
     warnings.push(
-      `Title is ${length} characters. Aim for 60 or fewer for optimal display in search results.`
+      `Title is ${length} characters. Aim for ${MAX_TITLE_LENGTH} or fewer for optimal display in search results.`
     );
-  } else if (length < 30) {
+  } else if (length < MIN_TITLE_LENGTH) {
     warnings.push(
-      `Title is ${length} characters. Consider 30-60 characters for better descriptiveness.`
+      `Title is ${length} characters. Consider ${MIN_TITLE_LENGTH}-${MAX_TITLE_LENGTH} characters for better descriptiveness.`
     );
   }
 
@@ -150,13 +158,13 @@ export function validateDescriptionLength(description: string): string[] {
   const warnings: string[] = [];
   const length = description.length;
 
-  if (length > 160) {
+  if (length > MAX_DESCRIPTION_LENGTH) {
     warnings.push(
-      `Description is ${length} characters. Aim for 160 or fewer to avoid truncation.`
+      `Description is ${length} characters. Aim for ${MAX_DESCRIPTION_LENGTH} or fewer to avoid truncation.`
     );
-  } else if (length < 120) {
+  } else if (length < MIN_DESCRIPTION_LENGTH) {
     warnings.push(
-      `Description is ${length} characters. Consider 120-160 characters for better SEO.`
+      `Description is ${length} characters. Consider ${MIN_DESCRIPTION_LENGTH}-${MAX_DESCRIPTION_LENGTH} characters for better SEO.`
     );
   }
 
@@ -182,9 +190,9 @@ export function validateKeywordsCount(keywords: string): string[] {
     .map((k) => k.trim())
     .filter(Boolean);
 
-  if (keywordList.length > 10) {
+  if (keywordList.length > MAX_KEYWORDS_COUNT) {
     warnings.push(
-      `Too many keywords (${keywordList.length}). Focus on 10 or fewer relevant keywords.`
+      `Too many keywords (${keywordList.length}). Focus on ${MAX_KEYWORDS_COUNT} or fewer relevant keywords.`
     );
   }
 

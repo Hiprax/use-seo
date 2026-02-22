@@ -75,13 +75,12 @@ describe('normalizeCanonical', () => {
 describe('normalizeLanguageTag', () => {
   it('returns normalized language tags', () => {
     expect(normalizeLanguageTag('en')).toBe('en');
-    expect(normalizeLanguageTag('EN')).toBeDefined();
+    expect(normalizeLanguageTag('EN')).toBe('en');
   });
 
   it('normalizes language-region tags', () => {
-    const result = normalizeLanguageTag('en-US');
-    expect(result).toBeDefined();
-    expect(result?.toLowerCase()).toContain('en');
+    expect(normalizeLanguageTag('en-US')).toBe('en-US');
+    expect(normalizeLanguageTag('en-us')).toBe('en-US');
   });
 
   it('returns undefined for invalid tags', () => {
@@ -92,8 +91,8 @@ describe('normalizeLanguageTag', () => {
   });
 
   it('handles valid BCP 47 patterns', () => {
-    expect(normalizeLanguageTag('zh-Hans')).toBeDefined();
-    expect(normalizeLanguageTag('pt-BR')).toBeDefined();
+    expect(normalizeLanguageTag('zh-Hans')).toBe('zh-Hans');
+    expect(normalizeLanguageTag('pt-BR')).toBe('pt-BR');
   });
 
   it('falls back to BCP47 pattern when Intl fails', () => {
@@ -198,6 +197,27 @@ describe('inferImageMimeType', () => {
     );
   });
 
+  it('handles hash fragments', () => {
+    expect(inferImageMimeType('https://example.com/image.jpg#section')).toBe(
+      'image/jpeg'
+    );
+    expect(inferImageMimeType('https://example.com/photo.png#top')).toBe(
+      'image/png'
+    );
+    expect(inferImageMimeType('https://example.com/icon.svg#id')).toBe(
+      'image/svg+xml'
+    );
+  });
+
+  it('handles URLs with both query strings and hash fragments', () => {
+    expect(
+      inferImageMimeType('https://example.com/image.png?w=100#hash')
+    ).toBe('image/png');
+    expect(
+      inferImageMimeType('https://example.com/photo.webp?quality=80#section')
+    ).toBe('image/webp');
+  });
+
   it('returns undefined for unknown extensions', () => {
     expect(inferImageMimeType('https://example.com/file.pdf')).toBeUndefined();
     expect(inferImageMimeType('https://example.com/file')).toBeUndefined();
@@ -206,5 +226,32 @@ describe('inferImageMimeType', () => {
   it('handles invalid input', () => {
     expect(inferImageMimeType('')).toBeUndefined();
     expect(inferImageMimeType(null as unknown as string)).toBeUndefined();
+  });
+
+  it('infers ICO type', () => {
+    expect(inferImageMimeType('https://example.com/favicon.ico')).toBe(
+      'image/x-icon'
+    );
+  });
+
+  it('handles uppercase extensions', () => {
+    expect(inferImageMimeType('https://example.com/photo.JPG')).toBe(
+      'image/jpeg'
+    );
+    expect(inferImageMimeType('https://example.com/logo.PNG')).toBe(
+      'image/png'
+    );
+  });
+});
+
+describe('normalizeCanonical edge cases', () => {
+  it('strips empty hash fragment', () => {
+    const result = normalizeCanonical('https://example.com/page#');
+    expect(result).toBe('https://example.com/page');
+  });
+
+  it('strips hash-only from root URL', () => {
+    const result = normalizeCanonical('https://example.com/#section');
+    expect(result).toBe('https://example.com/');
   });
 });

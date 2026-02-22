@@ -11,6 +11,7 @@ import {
   removeMarkedElements,
   createJsonLdScript,
   ensureEssentialMeta,
+  escapeSelectorValue,
   SEO_MARKER,
 } from '../../src/utils/dom';
 
@@ -282,5 +283,215 @@ describe('createMeta', () => {
 
     const metas = document.querySelectorAll('meta[property="og:image"]');
     expect(metas.length).toBe(2);
+  });
+});
+
+describe('escapeSelectorValue', () => {
+  it('escapes double quotes', () => {
+    expect(escapeSelectorValue('value"with"quotes')).toBe(
+      'value\\"with\\"quotes'
+    );
+  });
+
+  it('escapes backslashes', () => {
+    expect(escapeSelectorValue('value\\with\\backslashes')).toBe(
+      'value\\\\with\\\\backslashes'
+    );
+  });
+
+  it('escapes both double quotes and backslashes', () => {
+    expect(escapeSelectorValue('val\\"ue')).toBe('val\\\\\\"ue');
+  });
+
+  it('returns the same string when no special characters', () => {
+    expect(escapeSelectorValue('simple-value')).toBe('simple-value');
+    expect(escapeSelectorValue('og:title')).toBe('og:title');
+  });
+
+  it('handles empty string', () => {
+    expect(escapeSelectorValue('')).toBe('');
+  });
+});
+
+describe('removeMarkedElements with trackedElements', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('removes elements from the tracking Set when provided', () => {
+    const trackedElements = new Set<Element>();
+
+    const meta1 = document.createElement('meta');
+    meta1.setAttribute('name', 'test-tracked');
+    meta1.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(meta1);
+    trackedElements.add(meta1);
+
+    const meta2 = document.createElement('meta');
+    meta2.setAttribute('name', 'test-tracked-2');
+    meta2.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(meta2);
+    trackedElements.add(meta2);
+
+    expect(trackedElements.size).toBe(2);
+
+    removeMarkedElements('meta[name="test-tracked"]', trackedElements);
+
+    // meta1 should be removed from DOM and from the Set
+    expect(document.querySelector('meta[name="test-tracked"]')).toBeNull();
+    expect(trackedElements.has(meta1)).toBe(false);
+
+    // meta2 should still be in the DOM and Set (different selector)
+    expect(
+      document.querySelector('meta[name="test-tracked-2"]')
+    ).not.toBeNull();
+    expect(trackedElements.has(meta2)).toBe(true);
+    expect(trackedElements.size).toBe(1);
+  });
+
+  it('works without trackedElements parameter (backwards compatible)', () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'test-no-tracked');
+    meta.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(meta);
+
+    // Should not throw when trackedElements is not provided
+    removeMarkedElements('meta[name="test-no-tracked"]');
+
+    expect(document.querySelector('meta[name="test-no-tracked"]')).toBeNull();
+  });
+
+  it('removes multiple matching elements from the tracking Set', () => {
+    const trackedElements = new Set<Element>();
+
+    // Create multiple elements with the same property prefix
+    const meta1 = document.createElement('meta');
+    meta1.setAttribute('property', 'og:image');
+    meta1.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(meta1);
+    trackedElements.add(meta1);
+
+    const meta2 = document.createElement('meta');
+    meta2.setAttribute('property', 'og:image:width');
+    meta2.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(meta2);
+    trackedElements.add(meta2);
+
+    expect(trackedElements.size).toBe(2);
+
+    removeMarkedElements('meta[property^="og:image"]', trackedElements);
+
+    expect(trackedElements.size).toBe(0);
+    expect(
+      document.querySelectorAll('meta[property^="og:image"]').length
+    ).toBe(0);
+  });
+});
+
+describe('ensureEssentialMeta SEO_MARKER on charset', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('adds SEO_MARKER attribute to newly created charset meta', () => {
+    const addedElements = new Set<Element>();
+
+    ensureEssentialMeta(addedElements);
+
+    const charset = document.querySelector('meta[charset]');
+    expect(charset).not.toBeNull();
+    expect(charset?.getAttribute(SEO_MARKER)).toBe('true');
+  });
+
+  it('does not add SEO_MARKER to pre-existing charset meta', () => {
+    const existingCharset = document.createElement('meta');
+    existingCharset.setAttribute('charset', 'UTF-8');
+    document.head.appendChild(existingCharset);
+
+    const addedElements = new Set<Element>();
+    ensureEssentialMeta(addedElements);
+
+    // The pre-existing charset should not have been modified
+    expect(existingCharset.getAttribute(SEO_MARKER)).toBeNull();
+    // It should not be tracked
+    expect(addedElements.has(existingCharset)).toBe(false);
+  });
+});
+
+describe('getOrCreateMeta preventDuplicates false', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('does not remove duplicates when preventDuplicates is false', () => {
+    for (let i = 0; i < 3; i++) {
+      const meta = document.createElement('meta');
+      meta.setAttribute('name', 'description');
+      document.head.appendChild(meta);
+    }
+
+    getOrCreateMeta({ name: 'description' }, false);
+
+    // All 3 originals should remain since preventDuplicates is false
+    expect(document.querySelectorAll('meta[name="description"]').length).toBe(
+      3
+    );
+  });
+});
+
+describe('ensureEssentialMeta partial', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('creates only viewport when charset already exists', () => {
+    const charset = document.createElement('meta');
+    charset.setAttribute('charset', 'UTF-8');
+    document.head.appendChild(charset);
+
+    const addedElements = new Set<Element>();
+    ensureEssentialMeta(addedElements);
+
+    expect(document.querySelectorAll('meta[charset]').length).toBe(1);
+    expect(
+      document.querySelector('meta[name="viewport"]')
+    ).not.toBeNull();
+    // Only viewport should be tracked (charset already existed)
+    expect(addedElements.size).toBe(1);
+  });
+
+  it('creates only charset when viewport already exists', () => {
+    const viewport = document.createElement('meta');
+    viewport.setAttribute('name', 'viewport');
+    viewport.setAttribute('content', 'width=device-width');
+    document.head.appendChild(viewport);
+
+    const addedElements = new Set<Element>();
+    ensureEssentialMeta(addedElements);
+
+    expect(document.querySelectorAll('meta[name="viewport"]').length).toBe(1);
+    expect(document.querySelector('meta[charset]')).not.toBeNull();
+    // Only charset should be tracked (viewport already existed)
+    expect(addedElements.size).toBe(1);
+  });
+});
+
+describe('removeMarkedElements edge cases', () => {
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('does not throw when no elements match the selector', () => {
+    expect(() => {
+      removeMarkedElements('meta[name="nonexistent"]');
+    }).not.toThrow();
+  });
+
+  it('does not throw when no elements match with trackedElements', () => {
+    const tracked = new Set<Element>();
+    expect(() => {
+      removeMarkedElements('meta[name="nonexistent"]', tracked);
+    }).not.toThrow();
+    expect(tracked.size).toBe(0);
   });
 });

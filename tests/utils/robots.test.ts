@@ -170,3 +170,25 @@ describe('buildRobotsFromFlags', () => {
     expect(result?.noarchive).toBe(true);
   });
 });
+
+describe('buildRobots additional directives', () => {
+  it('handles maxVideoPreview with none', () => {
+    const result = buildRobots({ maxVideoPreview: 'none' });
+    expect(result.robots).toContain('max-video-preview:none');
+  });
+
+  it('handles maxImagePreview with none', () => {
+    const result = buildRobots({ maxImagePreview: 'none' });
+    expect(result.robots).toContain('max-image-preview:none');
+  });
+
+  it('handles maxImagePreview with standard', () => {
+    const result = buildRobots({ maxImagePreview: 'standard' });
+    expect(result.robots).toContain('max-image-preview:standard');
+  });
+
+  it('handles maxSnippet with zero', () => {
+    const result = buildRobots({ maxSnippet: 0 });
+    expect(result.robots).toContain('max-snippet:0');
+  });
+});

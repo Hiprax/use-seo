@@ -162,8 +162,8 @@ export function inferImageMimeType(url: string): string | undefined {
     return undefined;
   }
 
-  // Extract extension from URL, handling query strings
-  const pathMatch = url.match(/\.([a-z0-9]+)(?:\?.*)?$/i);
+  // Extract extension from URL, handling query strings and hash fragments
+  const pathMatch = url.match(/\.([a-z0-9]+)(?:[?#].*)?$/i);
   if (!pathMatch?.[1]) {
     return undefined;
   }

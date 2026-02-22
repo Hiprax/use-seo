@@ -112,6 +112,26 @@ describe('validateTitleLength', () => {
     const warnings = validateTitleLength(optimalTitle);
     expect(warnings.length).toBe(0);
   });
+
+  it('returns no warning at exactly 30 characters (lower boundary)', () => {
+    const warnings = validateTitleLength('A'.repeat(30));
+    expect(warnings.length).toBe(0);
+  });
+
+  it('returns no warning at exactly 60 characters (upper boundary)', () => {
+    const warnings = validateTitleLength('A'.repeat(60));
+    expect(warnings.length).toBe(0);
+  });
+
+  it('returns warning at 29 characters (just below lower boundary)', () => {
+    const warnings = validateTitleLength('A'.repeat(29));
+    expect(warnings.length).toBe(1);
+  });
+
+  it('returns warning at 61 characters (just above upper boundary)', () => {
+    const warnings = validateTitleLength('A'.repeat(61));
+    expect(warnings.length).toBe(1);
+  });
 });
 
 describe('validateDescriptionLength', () => {
@@ -132,6 +152,26 @@ describe('validateDescriptionLength', () => {
     const optimalDesc = 'A'.repeat(140);
     const warnings = validateDescriptionLength(optimalDesc);
     expect(warnings.length).toBe(0);
+  });
+
+  it('returns no warning at exactly 120 characters (lower boundary)', () => {
+    const warnings = validateDescriptionLength('A'.repeat(120));
+    expect(warnings.length).toBe(0);
+  });
+
+  it('returns no warning at exactly 160 characters (upper boundary)', () => {
+    const warnings = validateDescriptionLength('A'.repeat(160));
+    expect(warnings.length).toBe(0);
+  });
+
+  it('returns warning at 119 characters (just below lower boundary)', () => {
+    const warnings = validateDescriptionLength('A'.repeat(119));
+    expect(warnings.length).toBe(1);
+  });
+
+  it('returns warning at 161 characters (just above upper boundary)', () => {
+    const warnings = validateDescriptionLength('A'.repeat(161));
+    expect(warnings.length).toBe(1);
   });
 });
 
@@ -155,6 +195,18 @@ describe('validateKeywordsCount', () => {
     const keywords = 'a, , b, , c';
     const warnings = validateKeywordsCount(keywords);
     expect(warnings.length).toBe(0);
+  });
+
+  it('returns no warning at exactly 10 keywords (boundary)', () => {
+    const keywords = Array(10).fill('kw').join(',');
+    const warnings = validateKeywordsCount(keywords);
+    expect(warnings.length).toBe(0);
+  });
+
+  it('returns warning at 11 keywords (just above boundary)', () => {
+    const keywords = Array(11).fill('kw').join(',');
+    const warnings = validateKeywordsCount(keywords);
+    expect(warnings.length).toBe(1);
   });
 });
 

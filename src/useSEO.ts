@@ -80,6 +80,11 @@ import {
   DEFAULT_AUTO_CANONICAL,
   DEFAULT_PREVENT_DUPLICATES,
   DEFAULT_VALIDATE_URLS,
+  MIN_TITLE_LENGTH,
+  MAX_TITLE_LENGTH,
+  MIN_DESCRIPTION_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_KEYWORDS_COUNT,
 } from './constants';
 
 /**
@@ -134,6 +139,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     titlePrefix,
     titleSuffix,
     titleTemplate,
+    titleSeparator,
 
     // Open Graph
     ogTitle,
@@ -371,6 +377,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       template: titleTemplate,
       prefix: titlePrefix,
       suffix: titleSuffix,
+      separator: titleSeparator,
     });
 
     // Build config snapshot for change detection
@@ -388,6 +395,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       titlePrefix,
       titleSuffix,
       titleTemplate,
+      titleSeparator,
       ogTitle,
       ogDescription,
       ogImage,
@@ -430,6 +438,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       return;
     }
 
+    // Helper to validate a URL value and warn if invalid
+    const isUrlValid = (url: string, fieldName: string): boolean => {
+      if (!validateUrls) return true;
+      if (isValidUrl(url, true)) return true;
+      warn(`Invalid URL provided for ${fieldName}: ${url}`, enableWarnings);
+      return false;
+    };
+
     try {
       // === Title ===
       if (formattedTitle) {
@@ -437,14 +453,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
 
         // Dev warnings for title length
         if (enableWarnings) {
-          if (formattedTitle.length > 60) {
+          if (formattedTitle.length > MAX_TITLE_LENGTH) {
             warn(
-              `Title is ${formattedTitle.length} characters. Aim for ≤60 for optimal display.`,
+              `Title is ${formattedTitle.length} characters. Aim for ≤${MAX_TITLE_LENGTH} for optimal display.`,
               enableWarnings
             );
-          } else if (formattedTitle.length < 30) {
+          } else if (formattedTitle.length < MIN_TITLE_LENGTH) {
             warn(
-              `Title is ${formattedTitle.length} characters. Consider 30-60 for better SEO.`,
+              `Title is ${formattedTitle.length} characters. Consider ${MIN_TITLE_LENGTH}-${MAX_TITLE_LENGTH} for better SEO.`,
               enableWarnings
             );
           }
@@ -465,10 +481,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         updateMetaInternal({ name: 'description' }, description);
         if (
           enableWarnings &&
-          (description.length > 160 || description.length < 120)
+          (description.length > MAX_DESCRIPTION_LENGTH ||
+            description.length < MIN_DESCRIPTION_LENGTH)
         ) {
           warn(
-            `Description is ${description.length} characters. Aim for 120-160.`,
+            `Description is ${description.length} characters. Aim for ${MIN_DESCRIPTION_LENGTH}-${MAX_DESCRIPTION_LENGTH}.`,
             enableWarnings
           );
         }
@@ -480,9 +497,9 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
           .split(',')
           .map((k) => k.trim())
           .filter(Boolean).length;
-        if (enableWarnings && keywordCount > 10) {
+        if (enableWarnings && keywordCount > MAX_KEYWORDS_COUNT) {
           warn(
-            `Too many keywords (${keywordCount}). Focus on ≤10.`,
+            `Too many keywords (${keywordCount}). Focus on ≤${MAX_KEYWORDS_COUNT}.`,
             enableWarnings
           );
         }
@@ -529,7 +546,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         );
       }
 
-      if (effectiveOgUrl) {
+      if (effectiveOgUrl && isUrlValid(effectiveOgUrl, 'og:url')) {
         updateMetaInternal({ property: 'og:url' }, effectiveOgUrl);
       }
 
@@ -539,7 +556,10 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
 
       // OG Locale Alternates
       if (ogLocaleAlternates?.length) {
-        removeMarkedElements('meta[property="og:locale:alternate"]');
+        removeMarkedElements(
+          'meta[property="og:locale:alternate"]',
+          addedElements.current
+        );
         ogLocaleAlternates.forEach((loc) => {
           // Create new meta for each alternate (don't reuse existing)
           const meta = createMeta({ property: 'og:locale:alternate' });
@@ -551,9 +571,15 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // OG Images
       if (ogImages?.length) {
         // Remove previous OG image tags
-        removeMarkedElements('meta[property^="og:image"]');
+        removeMarkedElements(
+          'meta[property^="og:image"]',
+          addedElements.current
+        );
 
         ogImages.forEach((img: OpenGraphImage) => {
+          // Skip images with invalid URLs
+          if (!isUrlValid(img.url, 'og:image')) return;
+
           // Create new meta for each image (don't reuse existing)
           const imageMeta = createMeta({ property: 'og:image' });
           imageMeta.setAttribute('content', img.url);
@@ -597,7 +623,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
             addedElements.current.add(typeMeta);
           }
         });
-      } else if (ogImage) {
+      } else if (ogImage && isUrlValid(ogImage, 'og:image')) {
         // Single image (legacy)
         updateMetaInternal({ property: 'og:image' }, ogImage);
 
@@ -645,7 +671,10 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         );
       }
 
-      if (effectiveTwitterImage) {
+      if (
+        effectiveTwitterImage &&
+        isUrlValid(effectiveTwitterImage, 'twitter:image')
+      ) {
         updateMetaInternal({ name: 'twitter:image' }, effectiveTwitterImage);
       }
       if (twitterImageAlt) {
@@ -670,7 +699,10 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       }
 
       if (hreflangs?.length) {
-        removeMarkedElements('link[rel="alternate"][hreflang]');
+        removeMarkedElements(
+          'link[rel="alternate"][hreflang]',
+          addedElements.current
+        );
         hreflangs.forEach((h) => {
           updateLinkInternal(
             'alternate',
@@ -699,7 +731,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         updateMetaInternal({ name: 'robots' }, robotsStr);
       } else {
         // Remove robots meta if we previously added it and now it's not needed
-        removeMarkedElements('meta[name="robots"]');
+        removeMarkedElements('meta[name="robots"]', addedElements.current);
       }
 
       if (googlebot) {
@@ -709,6 +741,8 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // === Additional custom tags ===
       additionalMetaTags.forEach((tag) => {
         if (!tag?.content) return;
+        // Skip tags without any key identifier to avoid matching any meta element
+        if (!tag.name && !tag.property && !tag.httpEquiv) return;
         const key: MetaTagKey = tag.property
           ? { property: tag.property }
           : tag.httpEquiv
@@ -730,7 +764,10 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       });
 
       // === Structured Data (JSON-LD) ===
-      removeMarkedElements('script[type="application/ld+json"]');
+      removeMarkedElements(
+        'script[type="application/ld+json"]',
+        addedElements.current
+      );
 
       if (structuredData) {
         const items = Array.isArray(structuredData)
@@ -792,11 +829,9 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       logError('Error updating head tags', error);
     }
 
-    // Cleanup function - remove added elements on unmount
-    return () => {
-      // Only clean up JSON-LD scripts and elements we explicitly track
-      // Don't remove meta tags that might be shared across components
-    };
+    // Intentionally no cleanup on unmount: meta/link tags persist across
+    // component lifecycles to avoid flicker during SPA navigation.
+    // Use clearSEOTags() for explicit cleanup when needed.
   }, [
     // Basic SEO
     title,
@@ -813,6 +848,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     titlePrefix,
     titleSuffix,
     titleTemplate,
+    titleSeparator,
     // Open Graph
     ogTitle,
     ogDescription,

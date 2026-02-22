@@ -6,6 +6,19 @@
 /** Marker attribute to identify tags created by useSEO */
 export const SEO_MARKER = 'data-use-seo';
 
+/**
+ * Escapes a string for safe use in a CSS selector attribute value.
+ * Handles characters that could break or alter the selector.
+ *
+ * @param value - The value to escape
+ * @returns The escaped value safe for use in CSS selectors
+ *
+ * @internal
+ */
+export function escapeSelectorValue(value: string): string {
+  return value.replace(/["\\]/g, '\\$&');
+}
+
 /** Cached DOM availability check result */
 let cachedCanUseDOM: boolean | null = null;
 
@@ -103,13 +116,14 @@ export function getOrCreateMeta(
   // Build selector based on key type
   const attr = property ? 'property' : httpEquiv ? 'http-equiv' : 'name';
   const value = property ?? httpEquiv ?? name ?? '';
-  const selector = value ? `meta[${attr}="${value}"]` : 'meta';
+  const escaped = escapeSelectorValue(value);
+  const selector = value ? `meta[${attr}="${escaped}"]` : 'meta';
 
   let meta: HTMLMetaElement | null = document.querySelector(selector);
 
   // Remove duplicates if needed
   if (preventDuplicates && meta && value) {
-    const all = document.querySelectorAll(`meta[${attr}="${value}"]`);
+    const all = document.querySelectorAll(`meta[${attr}="${escaped}"]`);
     for (let i = 1; i < all.length; i++) {
       all[i]?.parentElement?.removeChild(all[i] as Node);
     }
@@ -155,7 +169,8 @@ export function getOrCreateLink(
   unique: boolean,
   keySelector?: string
 ): HTMLLinkElement {
-  let selector = `link[rel="${rel}"]`;
+  const escapedRel = escapeSelectorValue(rel);
+  let selector = `link[rel="${escapedRel}"]`;
   if (keySelector) {
     selector += keySelector;
   }
@@ -164,7 +179,7 @@ export function getOrCreateLink(
 
   // Handle unique constraint
   if (unique && !keySelector) {
-    const all = document.querySelectorAll(`link[rel="${rel}"]`);
+    const all = document.querySelectorAll(`link[rel="${escapedRel}"]`);
     if (all.length > 1) {
       for (let i = 1; i < all.length; i++) {
         all[i]?.parentElement?.removeChild(all[i] as Node);
@@ -186,16 +201,24 @@ export function getOrCreateLink(
 
 /**
  * Removes elements from the DOM that match the provided selector and have the SEO marker.
+ * Optionally also removes them from a tracking Set to prevent memory leaks.
  *
  * @param selector - CSS selector for elements to remove
+ * @param trackedElements - Optional Set of tracked elements to also remove from
  *
  * @example
  * ```typescript
  * // Remove all OG image meta tags created by useSEO
  * removeMarkedElements('meta[property^="og:image"]');
+ *
+ * // Remove and also clean up from tracking Set
+ * removeMarkedElements('meta[property^="og:image"]', addedElements);
  * ```
  */
-export function removeMarkedElements(selector: string): void {
+export function removeMarkedElements(
+  selector: string,
+  trackedElements?: Set<Element>
+): void {
   if (!canUseDOM()) return;
 
   const elements = document.querySelectorAll(
@@ -203,6 +226,7 @@ export function removeMarkedElements(selector: string): void {
   );
   elements.forEach((el) => {
     el.parentElement?.removeChild(el);
+    trackedElements?.delete(el);
   });
 }
 
@@ -261,6 +285,7 @@ export function ensureEssentialMeta(addedElements: Set<Element>): void {
   if (!document.querySelector('meta[charset]')) {
     const charsetMeta = document.createElement('meta');
     charsetMeta.setAttribute('charset', 'UTF-8');
+    charsetMeta.setAttribute(SEO_MARKER, 'true');
     document.head.insertBefore(charsetMeta, document.head.firstChild);
     addedElements.add(charsetMeta);
   }

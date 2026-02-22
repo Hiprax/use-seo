@@ -34,6 +34,12 @@ describe('warn', () => {
     warn('Test warning', true);
     expect(console.warn).not.toHaveBeenCalled();
   });
+
+  it('does not log in test environment even when enabled', () => {
+    process.env.NODE_ENV = 'test';
+    warn('Test warning', true);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('logError', () => {
@@ -52,7 +58,10 @@ describe('logError', () => {
   it('logs error in development', () => {
     process.env.NODE_ENV = 'development';
     logError('Test error');
-    expect(console.error).toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      '[useSEO Error]: Test error',
+      ''
+    );
   });
 
   it('logs error with error object', () => {

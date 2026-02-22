@@ -12,6 +12,7 @@ export {
   removeMarkedElements,
   createJsonLdScript,
   ensureEssentialMeta,
+  escapeSelectorValue,
   SEO_MARKER,
   type MetaKey,
 } from './dom';

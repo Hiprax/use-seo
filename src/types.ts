@@ -513,6 +513,19 @@ export interface SEOProps {
    */
   titleTemplate?: string;
 
+  /**
+   * Custom separator used between prefix/suffix and title.
+   *
+   * @default ' | '
+   *
+   * @example
+   * ```typescript
+   * useSEO({ title: 'Contact', titleSuffix: 'MyBrand', titleSeparator: ' - ' });
+   * // Result: "Contact - MyBrand"
+   * ```
+   */
+  titleSeparator?: string;
+
   // ===========================================================================
   // Open Graph
   // ===========================================================================
