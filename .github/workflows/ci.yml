@@ -65,3 +65,14 @@ jobs:
           path: coverage/lcov.info
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload coverage to Codecov
+        if: matrix.node-version == '22.x'
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-node22
+          fail_ci_if_error: false
+          slug: Hiprax/use-seo

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.1] - 2026-05-12
+
+### Added
+
+- **Codecov coverage reporting wired into CI** — `.github/workflows/ci.yml` gains a `Upload coverage to Codecov` step on the Node 22.x leg, running `codecov/codecov-action@v6` against `./coverage/lcov.info` (the same artifact already uploaded for download). The step uses `secrets.CODECOV_TOKEN` (Codecov "Repository Upload Token") so uploads work for both forked-PR and same-repo runs, runs only on the 22.x matrix leg to avoid duplicate uploads, sets `flags: unittests` + `name: codecov-node22` so the Codecov dashboard groups by test suite + matrix leg, and pins `fail_ci_if_error: false` so a transient Codecov outage degrades to "no coverage data this run" instead of failing CI for the wrong reason. `slug: Hiprax/use-seo` is explicit (Codecov's auto-detect is unreliable when actions run on forks). (`.github/workflows/ci.yml`)
+- **Codecov badge in README** — Added the `![codecov]` shield linking to `https://codecov.io/gh/Hiprax/use-seo`, sitting between the CodeQL and Provenance badges so the row reads "license / npm version / TypeScript / CI / CodeQL / codecov / Provenance" left-to-right. (`README.md`)
+
+### Removed
+
+- **npm monthly downloads badge** — Dropped the `![npm downloads](https://img.shields.io/npm/dm/...)` shield from the README header. Two reasons: it churns daily on the registry without correlating to package quality (and shields' badge cache makes the swing look bigger than it is), and a fresh `0.3.0` package has near-zero "monthly" download history while the cumulative figure of `0.2.1` is sticky in the registry's response for weeks — net effect was a misleading display. The npm version shield still gives consumers everything they need (latest version, registry link). (`README.md`)
+
 ## [0.3.0] - 2026-05-12
 
 ### Added

@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://img.shields.io/npm/v/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
-[![npm downloads](https://img.shields.io/npm/dm/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
 [![CI](https://github.com/Hiprax/use-seo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hiprax/use-seo/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Hiprax/use-seo/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Hiprax/use-seo/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/Hiprax/use-seo/branch/main/graph/badge.svg)](https://codecov.io/gh/Hiprax/use-seo)
 [![Provenance](https://img.shields.io/badge/npm-provenance-7cb342?logo=npm)](https://docs.npmjs.com/generating-provenance-statements)
 
 A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Cards, structured data (JSON-LD), and more. Fully typed with TypeScript and optimized for all React versions (16.8+).
