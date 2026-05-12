@@ -47,6 +47,8 @@ import type {
   SEOProps,
   SEOHookReturn,
   OpenGraphImage,
+  OpenGraphVideo,
+  OpenGraphAudio,
   RobotsOptions,
   MetaTagKey,
   LinkTagAttrs,
@@ -60,6 +62,10 @@ import {
   removeMarkedElements,
   createJsonLdScript,
   ensureEssentialMeta,
+  escapeSelectorValue,
+  hashJsonLd,
+  serializeJsonLdContent,
+  SEO_MARKER,
 } from './utils/dom';
 
 import {
@@ -118,6 +124,25 @@ import {
  * updateMetaTag({ name: 'description' }, 'Updated description');
  * ```
  *
+ * @remarks
+ * **Performance note — `JSON.stringify` order-sensitivity in change detection.**
+ * The hook serializes the resolved props with `JSON.stringify` and skips the
+ * effect when the new serialization matches the previous one. `JSON.stringify`
+ * walks an object's keys in insertion order, so the SAME data passed with a
+ * different key order produces a DIFFERENT string and forces the effect to
+ * re-run (a no-op in DOM terms but wasted work). Two practical guidelines:
+ *
+ * 1. Stabilize the props object across renders (e.g., `useMemo`) instead of
+ *    constructing a fresh object literal each render. Even when the values
+ *    are identical, a fresh literal is a different reference and React calls
+ *    your hook with a new object each render — change detection then has to
+ *    serialize and compare to detect that nothing changed.
+ * 2. When you DO build the props object inline, keep the key order stable
+ *    across renders. Don't conditionally swap key positions — the change
+ *    detection will treat that as a real change.
+ * 3. Prefer top-level primitive props over nested objects/arrays when both
+ *    work, since primitive equality is faster than object serialization.
+ *
  * @see {@link SEOProps} for all available options
  * @see {@link SEOHookReturn} for returned methods
  */
@@ -154,6 +179,15 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     ogUrl,
     ogLocale,
     ogLocaleAlternates,
+    ogVideo,
+    ogVideos,
+    ogAudio,
+    ogAudios,
+
+    // Article-specific OG
+    articleAuthor,
+    articleSection,
+    articleTags,
 
     // Twitter
     twitterCard = DEFAULT_TWITTER_CARD,
@@ -163,6 +197,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     twitterImageAlt,
     twitterCreator,
     twitterSite,
+    twitterPlayer,
+    twitterPlayerWidth,
+    twitterPlayerHeight,
+    twitterPlayerStream,
+    twitterPlayerStreamContentType,
 
     // Robots
     robots,
@@ -189,6 +228,7 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     preventDuplicates = DEFAULT_PREVENT_DUPLICATES,
     enableWarnings = shouldEnableWarnings(),
     validateUrls = DEFAULT_VALIDATE_URLS,
+    clearOnUnmount = false,
   } = props;
 
   // Track elements added by this hook instance for cleanup
@@ -197,6 +237,29 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
   const prevConfigRef = useRef<string>('');
   // Store last applied config for getCurrentSEO
   const lastSnapshotRef = useRef<SEOProps>({});
+  // Track the latest `clearOnUnmount` value so the unmount-cleanup effect
+  // (which runs only once with `[]` deps) can read the most recent setting
+  // at the moment of unmount, not a stale closure value.
+  const clearOnUnmountRef = useRef<boolean>(clearOnUnmount);
+  clearOnUnmountRef.current = clearOnUnmount;
+  // Track JSON-LD scripts by stable content hash. The Map preserves insertion
+  // order so we can reconcile incrementally: scripts whose hash is unchanged
+  // across renders are reused (not torn down + recreated), scripts for stale
+  // hashes are removed, and brand-new hashes get freshly created scripts.
+  // This avoids unnecessary DOM churn when (a) only one item in a multi-item
+  // structuredData array changed, or (b) some unrelated SEO prop changed but
+  // the structuredData array was untouched.
+  //
+  // Each entry stores BOTH the live element AND the previously-rendered
+  // serialized content. On the reuse path we re-serialize the new payload and
+  // compare it against the stored content; if they differ we know we hit a
+  // hash collision (two semantically distinct payloads produced the same
+  // FNV-1a hash) and re-write the script's `textContent` so the DOM never
+  // serves stale data. Without the stored content we'd have to either always
+  // re-write (defeating the perf optimization) or accept silent staleness.
+  const jsonLdScriptsRef = useRef<
+    Map<string, { element: HTMLScriptElement; content: string }>
+  >(new Map());
 
   /**
    * Internal: Update or create a meta tag
@@ -205,10 +268,25 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     (key: MetaTagKey, content: string): void => {
       if (!canUseDOM()) return;
       if (!content || (typeof content === 'string' && !content.trim())) return;
+      // Bail out if the caller forgot to provide an identifier — without one,
+      // `getOrCreateMeta` would refuse to operate (returns null) to avoid
+      // overwriting an unrelated meta element.
+      if (!key.name && !key.property && !key.httpEquiv) return;
 
-      const meta = getOrCreateMeta(key, preventDuplicates);
+      const meta = getOrCreateMeta(
+        key,
+        preventDuplicates,
+        addedElements.current
+      );
+      if (!meta) return;
       meta.setAttribute('content', content);
-      addedElements.current.add(meta);
+      // Only track elements that the hook actually CREATED (carry the SEO
+      // marker). Pre-existing user-authored elements that we merely mutate
+      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
+      // them — that's data loss.
+      if (meta.getAttribute(SEO_MARKER) === 'true') {
+        addedElements.current.add(meta);
+      }
     },
     [preventDuplicates]
   );
@@ -243,9 +321,25 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         content = contentOrValue;
       }
 
-      // URL validation for URL-like fields
+      // Refuse to operate without a key — this prevents `getOrCreateMeta`
+      // from being asked to match "any meta" and silently overwriting an
+      // unrelated tag. Surface a dev warning so the misuse is visible.
+      if (!key.name && !key.property && !key.httpEquiv) {
+        warn(
+          'updateMetaTag called without a key (name/property/httpEquiv). The call was ignored.',
+          enableWarnings
+        );
+        return;
+      }
+
+      // URL validation for URL-like fields. Honor `httpEquiv` too — some
+      // http-equiv values can carry URLs (e.g., `Content-Location`,
+      // `X-Frame-Options` with a URI), and the previous heuristic ignored
+      // them entirely. `isUrlField` is conservative enough that ordinary
+      // http-equiv names like `refresh`/`Content-Type` (whose content is
+      // composite, NOT a bare URL) won't be misclassified as URL fields.
       if (validateUrls && content) {
-        const fieldName = key.property ?? key.name ?? '';
+        const fieldName = key.property ?? key.name ?? key.httpEquiv ?? '';
         if (isUrlField(fieldName) && !isValidUrl(content, true)) {
           warn(
             `Invalid URL provided for ${fieldName}: ${content}`,
@@ -272,7 +366,29 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       keySelector?: string
     ): void => {
       if (!canUseDOM()) return;
-      if (!href?.trim()) return;
+      // Refuse to operate without a `rel` — otherwise `getOrCreateLink`
+      // would build a `link[rel=""]` selector and either match the wrong
+      // element or create a useless empty `<link>`.
+      if (typeof rel !== 'string' || !rel.trim()) {
+        warn(
+          'updateLinkTag called without a rel. The call was ignored.',
+          enableWarnings
+        );
+        return;
+      }
+      // Reject null/undefined/empty/whitespace-only href values up front so
+      // we don't silently create a `<link href="">` (which is treated by
+      // the browser as the document URL — almost never what the caller
+      // wants). Use a non-throwing string-coercion check instead of
+      // `href?.trim()` because `href` may be `null` at runtime even though
+      // the TypeScript signature says `string`.
+      if (typeof href !== 'string' || !href.trim()) {
+        warn(
+          `updateLinkTag called for rel="${rel}" with empty or missing href. The call was ignored.`,
+          enableWarnings
+        );
+        return;
+      }
 
       // URL validation
       if (validateUrls && !isValidUrl(href, true)) {
@@ -283,7 +399,12 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         return;
       }
 
-      const link = getOrCreateLink(rel, unique, keySelector);
+      const link = getOrCreateLink(
+        rel,
+        unique,
+        keySelector,
+        addedElements.current
+      );
       link.setAttribute('href', href);
 
       // Set additional attributes
@@ -295,19 +416,35 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       if (attrs.crossOrigin)
         link.setAttribute('crossorigin', attrs.crossOrigin);
 
-      addedElements.current.add(link);
+      // Only track elements that the hook actually CREATED (carry the SEO
+      // marker). Pre-existing user-authored elements that we merely mutate
+      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
+      // them — that's data loss.
+      if (link.getAttribute(SEO_MARKER) === 'true') {
+        addedElements.current.add(link);
+      }
     },
     [validateUrls, enableWarnings]
   );
 
   /**
    * Public: Update or create a link tag (with overloaded signatures)
+   *
+   * Overload disambiguation uses the type of the third argument:
+   * - Object (non-null) → modern signature
+   *   `(rel, href, attrs, unique?, keySelector?)`
+   * - String → legacy signature
+   *   `(rel, href, type, sizes?, media?, hrefLang?, crossOrigin?)`
+   * - `null`/`undefined` → looked up in the fourth argument; if it is a
+   *   `boolean` we treat the call as modern (`attrs` is empty), otherwise
+   *   we treat it as legacy. This means a caller who only wants to set
+   *   `unique` can write `updateLinkTag('canonical', 'https://x', undefined, true)`.
    */
   const updateLinkTag = useCallback(
     (
       rel: string,
       href: string,
-      attrsOrType?: LinkTagAttrs | string,
+      attrsOrType?: LinkTagAttrs | string | null,
       uniqueOrSizes?: boolean | string,
       keySelectorOrMedia?: string,
       hrefLangArg?: string,
@@ -315,13 +452,34 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     ): void => {
       if (!canUseDOM()) return;
 
-      // Detect which signature is being used
-      if (attrsOrType && typeof attrsOrType === 'object') {
+      // Disambiguate the overloads by inspecting the third argument's type,
+      // falling back to the fourth argument when the third is null/undefined.
+      const isModernByThird =
+        attrsOrType !== null &&
+        attrsOrType !== undefined &&
+        typeof attrsOrType === 'object';
+      const isLegacyByThird = typeof attrsOrType === 'string';
+      // When `attrsOrType` is null/undefined and the fourth arg is a boolean,
+      // the caller is unambiguously using the modern signature with no attrs
+      // (they only care about `unique`).
+      const isModernByFourth =
+        !isModernByThird &&
+        !isLegacyByThird &&
+        typeof uniqueOrSizes === 'boolean';
+
+      if (isModernByThird || isModernByFourth) {
         // Modern signature: (rel, href, attrs?, unique?, keySelector?)
+        // When `attrsOrType` is non-string and non-null/undefined, it must
+        // be a `LinkTagAttrs` per the overload signature; otherwise we
+        // default to an empty attrs object.
+        const attrs: LinkTagAttrs =
+          isModernByThird && attrsOrType && typeof attrsOrType !== 'string'
+            ? attrsOrType
+            : {};
         updateLinkInternal(
           rel,
           href,
-          attrsOrType,
+          attrs,
           typeof uniqueOrSizes === 'boolean' ? uniqueOrSizes : false,
           typeof keySelectorOrMedia === 'string'
             ? keySelectorOrMedia
@@ -343,13 +501,20 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
   ) as SEOHookReturn['updateLinkTag'];
 
   /**
-   * Remove all SEO tags added by this hook instance
+   * Remove all SEO tags added by this hook instance.
+   *
+   * Only elements created by the hook (those carrying the
+   * `data-use-seo="true"` marker) are removed. Pre-existing user-authored
+   * elements that the hook merely mutated are preserved — removing them
+   * would be silent data loss.
    */
   const clearSEOTags = useCallback((): void => {
     if (!canUseDOM()) return;
 
     addedElements.current.forEach((el) => {
-      if (el.parentNode) {
+      // Defense in depth: even if a non-created element somehow ended up in
+      // the tracking Set, only remove ones that carry the SEO marker.
+      if (el.getAttribute(SEO_MARKER) === 'true' && el.parentNode) {
         el.parentNode.removeChild(el);
       }
     });
@@ -357,10 +522,29 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
   }, []);
 
   /**
-   * Get the current SEO configuration snapshot
+   * Get the current SEO configuration snapshot.
+   *
+   * Returns a deep clone so callers can mutate nested arrays/objects (e.g.
+   * `getCurrentSEO().ogImages.push(...)`) without corrupting the internal
+   * snapshot. Always uses a `JSON.parse(JSON.stringify(...))` round-trip so
+   * the result shape is identical across every supported runtime (Node 16+,
+   * every modern browser, every bundler) — there is no `structuredClone`
+   * fast-path to diverge from. The implication is that any keys whose value
+   * is `undefined` are DROPPED from the returned object (since
+   * `JSON.stringify` omits `undefined` values), and the schema must be
+   * JSON-clean (no `Date`/`Map`/`Set`/`BigInt`/functions/circular refs).
+   * `SEOProps` is intentionally JSON-clean — it exposes only primitives,
+   * strings, plain arrays, and plain objects — so this trade-off is safe
+   * and the cross-runtime shape is uniform.
+   *
+   * Cost note: serialising tens of primitives is in the microsecond range
+   * and `getCurrentSEO()` is typically called once per consumer (e.g., to
+   * read the current state from a debugging panel or test), so the small
+   * perf delta versus `structuredClone` is irrelevant in practice.
    */
   const getCurrentSEO = useCallback((): SEOProps => {
-    return { ...lastSnapshotRef.current };
+    const snap = lastSnapshotRef.current;
+    return JSON.parse(JSON.stringify(snap)) as SEOProps;
   }, []);
 
   // Main effect for applying SEO tags
@@ -408,6 +592,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       ogUrl: effectiveOgUrl,
       ogLocale,
       ogLocaleAlternates,
+      ogVideo,
+      ogVideos,
+      ogAudio,
+      ogAudios,
+      articleAuthor,
+      articleSection,
+      articleTags,
       twitterCard,
       twitterTitle,
       twitterDescription,
@@ -415,6 +606,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       twitterImageAlt,
       twitterCreator,
       twitterSite,
+      twitterPlayer,
+      twitterPlayerWidth,
+      twitterPlayerHeight,
+      twitterPlayerStream,
+      twitterPlayerStreamContentType,
       robots,
       hreflangs,
       prev,
@@ -548,18 +744,33 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
 
       if (effectiveOgUrl && isUrlValid(effectiveOgUrl, 'og:url')) {
         updateMetaInternal({ property: 'og:url' }, effectiveOgUrl);
+      } else {
+        // The effective value disappeared on this render (no ogUrl, no
+        // canonical). Remove any previously hook-created og:url so it
+        // doesn't linger as stale metadata.
+        removeMarkedElements('meta[property="og:url"]', addedElements.current);
       }
 
       if (ogLocale) {
         updateMetaInternal({ property: 'og:locale' }, ogLocale);
+      } else {
+        // The user removed `ogLocale` between renders — clean up any
+        // previously hook-created og:locale instead of leaving it stale.
+        removeMarkedElements(
+          'meta[property="og:locale"]',
+          addedElements.current
+        );
       }
 
       // OG Locale Alternates
+      // ALWAYS clean up previous alternates before re-creating, even when
+      // the new value is empty/undefined — otherwise stale tags from the
+      // last render would persist after the user removes the prop.
+      removeMarkedElements(
+        'meta[property="og:locale:alternate"]',
+        addedElements.current
+      );
       if (ogLocaleAlternates?.length) {
-        removeMarkedElements(
-          'meta[property="og:locale:alternate"]',
-          addedElements.current
-        );
         ogLocaleAlternates.forEach((loc) => {
           // Create new meta for each alternate (don't reuse existing)
           const meta = createMeta({ property: 'og:locale:alternate' });
@@ -569,13 +780,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       }
 
       // OG Images
+      // ALWAYS clean up previous og:image* tags before re-creating, even
+      // when the new value is empty/undefined — otherwise stale tags from
+      // the last render would persist after the user removes the prop.
+      // The `og:image*` selector covers og:image, og:image:width,
+      // og:image:height, og:image:alt, og:image:secure_url, og:image:type.
+      removeMarkedElements('meta[property^="og:image"]', addedElements.current);
       if (ogImages?.length) {
-        // Remove previous OG image tags
-        removeMarkedElements(
-          'meta[property^="og:image"]',
-          addedElements.current
-        );
-
         ogImages.forEach((img: OpenGraphImage) => {
           // Skip images with invalid URLs
           if (!isUrlValid(img.url, 'og:image')) return;
@@ -586,11 +797,17 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
           addedElements.current.add(imageMeta);
 
           if (img.secureUrl) {
-            const secureUrlMeta = createMeta({
-              property: 'og:image:secure_url',
-            });
-            secureUrlMeta.setAttribute('content', img.secureUrl);
-            addedElements.current.add(secureUrlMeta);
+            // Validate the explicit `secureUrl` separately from the primary
+            // `url` so a malformed CMS value doesn't slip a broken
+            // `og:image:secure_url` into the DOM. The rest of the image
+            // entry (og:image, width/height/alt/type) still emits.
+            if (isUrlValid(img.secureUrl, 'og:image:secure_url')) {
+              const secureUrlMeta = createMeta({
+                property: 'og:image:secure_url',
+              });
+              secureUrlMeta.setAttribute('content', img.secureUrl);
+              addedElements.current.add(secureUrlMeta);
+            }
           } else if (img.url.startsWith('https:')) {
             const secureUrlMeta = createMeta({
               property: 'og:image:secure_url',
@@ -652,6 +869,185 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         }
       }
 
+      // === OG Video ===
+      // ALWAYS clean up previous og:video* tags before re-creating, even
+      // when the new value is empty/undefined — otherwise stale tags from
+      // the last render would persist after the user removes the prop.
+      // The `og:video*` selector covers og:video, og:video:secure_url,
+      // og:video:type, og:video:width, og:video:height, og:video:alt.
+      removeMarkedElements('meta[property^="og:video"]', addedElements.current);
+      if (ogVideos?.length) {
+        ogVideos.forEach((video: OpenGraphVideo) => {
+          if (!isUrlValid(video.url, 'og:video')) return;
+
+          const videoMeta = createMeta({ property: 'og:video' });
+          videoMeta.setAttribute('content', video.url);
+          addedElements.current.add(videoMeta);
+
+          if (video.secureUrl) {
+            // Validate the explicit `secureUrl` separately from the primary
+            // `url` so a malformed value doesn't slip a broken
+            // `og:video:secure_url` into the DOM. The rest of the video
+            // entry still emits.
+            if (isUrlValid(video.secureUrl, 'og:video:secure_url')) {
+              const secureUrlMeta = createMeta({
+                property: 'og:video:secure_url',
+              });
+              secureUrlMeta.setAttribute('content', video.secureUrl);
+              addedElements.current.add(secureUrlMeta);
+            }
+          } else if (video.url.startsWith('https:')) {
+            const secureUrlMeta = createMeta({
+              property: 'og:video:secure_url',
+            });
+            secureUrlMeta.setAttribute('content', video.url);
+            addedElements.current.add(secureUrlMeta);
+          }
+
+          if (video.type) {
+            const typeMeta = createMeta({ property: 'og:video:type' });
+            typeMeta.setAttribute('content', video.type);
+            addedElements.current.add(typeMeta);
+          }
+          if (video.width) {
+            const widthMeta = createMeta({ property: 'og:video:width' });
+            widthMeta.setAttribute('content', String(video.width));
+            addedElements.current.add(widthMeta);
+          }
+          if (video.height) {
+            const heightMeta = createMeta({ property: 'og:video:height' });
+            heightMeta.setAttribute('content', String(video.height));
+            addedElements.current.add(heightMeta);
+          }
+          if (video.alt) {
+            const altMeta = createMeta({ property: 'og:video:alt' });
+            altMeta.setAttribute('content', video.alt);
+            addedElements.current.add(altMeta);
+          }
+        });
+      } else if (ogVideo && isUrlValid(ogVideo, 'og:video')) {
+        // Single video shorthand (legacy parity with `ogImage`).
+        const videoMeta = createMeta({ property: 'og:video' });
+        videoMeta.setAttribute('content', ogVideo);
+        addedElements.current.add(videoMeta);
+
+        if (ogVideo.startsWith('https:')) {
+          const secureUrlMeta = createMeta({
+            property: 'og:video:secure_url',
+          });
+          secureUrlMeta.setAttribute('content', ogVideo);
+          addedElements.current.add(secureUrlMeta);
+        }
+      }
+
+      // === OG Audio ===
+      // ALWAYS clean up previous og:audio* tags before re-creating.
+      removeMarkedElements('meta[property^="og:audio"]', addedElements.current);
+      if (ogAudios?.length) {
+        ogAudios.forEach((audio: OpenGraphAudio) => {
+          if (!isUrlValid(audio.url, 'og:audio')) return;
+
+          const audioMeta = createMeta({ property: 'og:audio' });
+          audioMeta.setAttribute('content', audio.url);
+          addedElements.current.add(audioMeta);
+
+          if (audio.secureUrl) {
+            // Validate the explicit `secureUrl` separately from the primary
+            // `url` so a malformed value doesn't slip a broken
+            // `og:audio:secure_url` into the DOM. The rest of the audio
+            // entry still emits.
+            if (isUrlValid(audio.secureUrl, 'og:audio:secure_url')) {
+              const secureUrlMeta = createMeta({
+                property: 'og:audio:secure_url',
+              });
+              secureUrlMeta.setAttribute('content', audio.secureUrl);
+              addedElements.current.add(secureUrlMeta);
+            }
+          } else if (audio.url.startsWith('https:')) {
+            const secureUrlMeta = createMeta({
+              property: 'og:audio:secure_url',
+            });
+            secureUrlMeta.setAttribute('content', audio.url);
+            addedElements.current.add(secureUrlMeta);
+          }
+
+          if (audio.type) {
+            const typeMeta = createMeta({ property: 'og:audio:type' });
+            typeMeta.setAttribute('content', audio.type);
+            addedElements.current.add(typeMeta);
+          }
+        });
+      } else if (ogAudio && isUrlValid(ogAudio, 'og:audio')) {
+        // Single audio shorthand.
+        const audioMeta = createMeta({ property: 'og:audio' });
+        audioMeta.setAttribute('content', ogAudio);
+        addedElements.current.add(audioMeta);
+
+        if (ogAudio.startsWith('https:')) {
+          const secureUrlMeta = createMeta({
+            property: 'og:audio:secure_url',
+          });
+          secureUrlMeta.setAttribute('content', ogAudio);
+          addedElements.current.add(secureUrlMeta);
+        }
+      }
+
+      // === Article-specific Open Graph (when ogType === 'article') ===
+      // Multi-value tags (article:author, article:tag) follow the same
+      // cleanup-then-recreate pattern as OG image/locale alternates so a
+      // re-render with the prop unset removes stale tags.
+      removeMarkedElements(
+        'meta[property="article:author"]',
+        addedElements.current
+      );
+      if (articleAuthor) {
+        const authors = Array.isArray(articleAuthor)
+          ? articleAuthor
+          : [articleAuthor];
+        authors.forEach((author) => {
+          if (typeof author !== 'string' || !author.trim()) return;
+          // Honor URL validation when the value looks like a URL — per the
+          // OG Article spec the value SHOULD be a profile URL, but
+          // historically some sites use plain text identifiers, so only
+          // skip when validation explicitly rejects an absolute URL.
+          if (validateUrls && /^https?:\/\//i.test(author)) {
+            if (!isValidUrl(author, true)) {
+              warn(
+                `Invalid URL provided for article:author: ${author}`,
+                enableWarnings
+              );
+              return;
+            }
+          }
+          const authorMeta = createMeta({ property: 'article:author' });
+          authorMeta.setAttribute('content', author);
+          addedElements.current.add(authorMeta);
+        });
+      }
+
+      if (articleSection) {
+        updateMetaInternal({ property: 'article:section' }, articleSection);
+      } else {
+        // Stale-cleanup parity with other auto-emitted single-value tags.
+        removeMarkedElements(
+          'meta[property="article:section"]',
+          addedElements.current
+        );
+      }
+
+      removeMarkedElements(
+        'meta[property="article:tag"]',
+        addedElements.current
+      );
+      if (articleTags?.length) {
+        articleTags.forEach((tag) => {
+          if (typeof tag !== 'string' || !tag.trim()) return;
+          const tagMeta = createMeta({ property: 'article:tag' });
+          tagMeta.setAttribute('content', tag);
+          addedElements.current.add(tagMeta);
+        });
+      }
+
       // === Twitter Card ===
       if (twitterCard) {
         updateMetaInternal({ name: 'twitter:card' }, twitterCard);
@@ -676,6 +1072,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         isUrlValid(effectiveTwitterImage, 'twitter:image')
       ) {
         updateMetaInternal({ name: 'twitter:image' }, effectiveTwitterImage);
+      } else {
+        // The effective twitter image disappeared on this render
+        // (no twitterImage, ogImage, or ogImages). Clean up any
+        // previously hook-created twitter:image so it doesn't linger.
+        removeMarkedElements(
+          'meta[name="twitter:image"]',
+          addedElements.current
+        );
       }
       if (twitterImageAlt) {
         updateMetaInternal({ name: 'twitter:image:alt' }, twitterImageAlt);
@@ -685,6 +1089,69 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       }
       if (twitterSite) {
         updateMetaInternal({ name: 'twitter:site' }, twitterSite);
+      }
+
+      // === Twitter Player Card (when twitterCard === 'player') ===
+      // The fields are emitted whenever the user provides them; we intentionally
+      // do NOT gate on `twitterCard === 'player'` because some validators are
+      // happy with the player meta tags being present alongside other cards
+      // (e.g., a fallback summary card). When the user removes the player URL
+      // we still clean up the previously-emitted player meta tags so they
+      // don't linger across re-renders.
+      if (twitterPlayer && isUrlValid(twitterPlayer, 'twitter:player')) {
+        updateMetaInternal({ name: 'twitter:player' }, twitterPlayer);
+      } else {
+        removeMarkedElements(
+          'meta[name="twitter:player"]',
+          addedElements.current
+        );
+      }
+      if (twitterPlayerWidth !== undefined) {
+        updateMetaInternal(
+          { name: 'twitter:player:width' },
+          String(twitterPlayerWidth)
+        );
+      } else {
+        removeMarkedElements(
+          'meta[name="twitter:player:width"]',
+          addedElements.current
+        );
+      }
+      if (twitterPlayerHeight !== undefined) {
+        updateMetaInternal(
+          { name: 'twitter:player:height' },
+          String(twitterPlayerHeight)
+        );
+      } else {
+        removeMarkedElements(
+          'meta[name="twitter:player:height"]',
+          addedElements.current
+        );
+      }
+      if (
+        twitterPlayerStream &&
+        isUrlValid(twitterPlayerStream, 'twitter:player:stream')
+      ) {
+        updateMetaInternal(
+          { name: 'twitter:player:stream' },
+          twitterPlayerStream
+        );
+      } else {
+        removeMarkedElements(
+          'meta[name="twitter:player:stream"]',
+          addedElements.current
+        );
+      }
+      if (twitterPlayerStreamContentType) {
+        updateMetaInternal(
+          { name: 'twitter:player:stream:content_type' },
+          twitterPlayerStreamContentType
+        );
+      } else {
+        removeMarkedElements(
+          'meta[name="twitter:player:stream:content_type"]',
+          addedElements.current
+        );
       }
 
       // === Canonical / Pagination / Hreflang ===
@@ -698,18 +1165,26 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         updateLinkInternal('next', next, {}, true);
       }
 
+      // ALWAYS clean up previous hreflang alternates before re-creating,
+      // even when the new value is empty/undefined — otherwise stale tags
+      // from the last render would persist after the user removes the prop.
+      removeMarkedElements(
+        'link[rel="alternate"][hreflang]',
+        addedElements.current
+      );
       if (hreflangs?.length) {
-        removeMarkedElements(
-          'link[rel="alternate"][hreflang]',
-          addedElements.current
-        );
         hreflangs.forEach((h) => {
+          // Escape the hreflang value before interpolating it into the CSS
+          // selector — otherwise a value like `en"]` would corrupt the
+          // selector and either throw `SyntaxError` or match unrelated
+          // elements.
+          const escapedHrefLang = escapeSelectorValue(h.hrefLang);
           updateLinkInternal(
             'alternate',
             h.href,
             { hrefLang: h.hrefLang },
             false,
-            `[hreflang="${h.hrefLang}"]`
+            `[hreflang="${escapedHrefLang}"]`
           );
         });
       }
@@ -741,18 +1216,59 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // === Additional custom tags ===
       additionalMetaTags.forEach((tag) => {
         if (!tag?.content) return;
-        // Skip tags without any key identifier to avoid matching any meta element
-        if (!tag.name && !tag.property && !tag.httpEquiv) return;
-        const key: MetaTagKey = tag.property
-          ? { property: tag.property }
-          : tag.httpEquiv
-            ? { httpEquiv: tag.httpEquiv }
-            : { name: tag.name };
+        // Trim each key field so whitespace-only values (e.g.
+        // `{ name: '   ', content: 'foo' }`) cannot bypass the empty-trio
+        // guard and create a `<meta name="   ">` element with a
+        // syntactically valid but semantically meaningless identifier.
+        const trimmedName = tag.name?.trim();
+        const trimmedProperty = tag.property?.trim();
+        const trimmedHttpEquiv = tag.httpEquiv?.trim();
+        // Skip tags without any non-empty key identifier after trimming.
+        if (!trimmedName && !trimmedProperty && !trimmedHttpEquiv) {
+          warn(
+            'additionalMetaTags entry has no non-empty name/property/httpEquiv after trimming; skipping.',
+            enableWarnings
+          );
+          return;
+        }
+        const key: MetaTagKey = trimmedProperty
+          ? { property: trimmedProperty }
+          : trimmedHttpEquiv
+            ? { httpEquiv: trimmedHttpEquiv }
+            : { name: trimmedName };
+
+        // Honor `validateUrls` for custom meta tags — previously this code
+        // bypassed validation, so `additionalMetaTags: [{ property:
+        // 'og:image', content: 'not-a-url' }]` slipped through even when
+        // the matching built-in field would have been rejected.
+        if (validateUrls && tag.content) {
+          const fieldName =
+            trimmedProperty ?? trimmedName ?? trimmedHttpEquiv ?? '';
+          if (isUrlField(fieldName) && !isValidUrl(tag.content, true)) {
+            warn(
+              `Invalid URL provided for ${fieldName}: ${tag.content}`,
+              enableWarnings
+            );
+            return;
+          }
+        }
+
         updateMetaInternal(key, tag.content);
       });
 
       additionalLinkTags.forEach((tag) => {
         if (!tag?.href) return;
+        // `updateLinkInternal` already validates href when validateUrls is
+        // true, but we duplicate the early return here so the warning
+        // message is consistent (`additionalLinkTags[...]`) and so we can
+        // skip without invoking the rest of `updateLinkInternal`.
+        if (validateUrls && !isValidUrl(tag.href, true)) {
+          warn(
+            `Invalid URL provided for additionalLinkTags rel="${tag.rel}": ${tag.href}`,
+            enableWarnings
+          );
+          return;
+        }
         updateLinkInternal(tag.rel, tag.href, {
           type: tag.type,
           sizes: tag.sizes,
@@ -764,25 +1280,108 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       });
 
       // === Structured Data (JSON-LD) ===
-      removeMarkedElements(
-        'script[type="application/ld+json"]',
-        addedElements.current
-      );
-
-      if (structuredData) {
-        const items = Array.isArray(structuredData)
+      // Incremental reconciliation:
+      //   1. Compute a stable hash for each item in the new array.
+      //   2. Reuse the existing <script> element when its hash is still
+      //      present in the new array (preserves element identity).
+      //   3. Remove <script> elements whose hash disappeared.
+      //   4. Create new <script> elements for new hashes.
+      //   5. Re-append in the new array order so document order matches the
+      //      caller-supplied order. `appendChild` on an already-attached node
+      //      moves it without recreating it, so element identity is preserved
+      //      even when the array is shuffled.
+      const items = structuredData
+        ? Array.isArray(structuredData)
           ? structuredData
-          : [structuredData];
-        items.forEach((data, index) => {
+          : [structuredData]
+        : [];
+
+      // Build the new ordered list of (hash, item, originalIndex) entries.
+      // Items that fail to hash (circular refs, BigInt) get a synthetic
+      // unique key so they always go through the create path — and the
+      // create path will then log the error via createJsonLdScript.
+      const newEntries: Array<{
+        hash: string;
+        data: object;
+        index: number;
+      }> = [];
+      const seenHashes = new Set<string>();
+      items.forEach((data, index) => {
+        const baseHash = hashJsonLd(data);
+        // De-duplicate identical payloads within the SAME render by suffixing
+        // the index so each occurrence gets its own slot. Without this, two
+        // identical items would collapse to a single <script> element.
+        let hash = baseHash ?? `__unhashable_${index}`;
+        if (seenHashes.has(hash)) {
+          hash = `${hash}__dup_${index}`;
+        }
+        seenHashes.add(hash);
+        newEntries.push({ hash, data, index });
+      });
+
+      const previousMap = jsonLdScriptsRef.current;
+      const nextMap = new Map<
+        string,
+        { element: HTMLScriptElement; content: string }
+      >();
+
+      // Step 1: remove scripts whose hash is no longer present.
+      previousMap.forEach((entry, hash) => {
+        if (!seenHashes.has(hash)) {
+          entry.element.parentElement?.removeChild(entry.element);
+          addedElements.current.delete(entry.element);
+        }
+      });
+
+      // Step 2: walk the new entries, reusing or creating scripts in order.
+      newEntries.forEach(({ hash, data, index }) => {
+        const existing = previousMap.get(hash);
+        if (existing?.element.isConnected) {
+          // Reuse: re-append to enforce document order. `appendChild` on an
+          // attached node detaches and re-inserts WITHOUT recreating, so the
+          // Element identity is preserved (verified by the test suite).
+          document.head.appendChild(existing.element);
+          // Keep the data-seo-index in sync with the new position so callers
+          // that key off this attribute still see the correct order.
+          existing.element.setAttribute('data-seo-index', String(index));
+          // Hash-collision defense: serialize the new payload and compare
+          // against the previously-rendered content. If the hash matched but
+          // the actual content differs (rare FNV-1a collision), update the
+          // script's textContent so the DOM reflects the caller's intent.
+          // When the content matches exactly we skip the DOM write so the
+          // perf characteristic of incremental reconciliation is preserved.
+          const newContent = serializeJsonLdContent(data, index);
+          if (newContent !== null && newContent !== existing.content) {
+            existing.element.textContent = newContent;
+            nextMap.set(hash, {
+              element: existing.element,
+              content: newContent,
+            });
+          } else {
+            // No content change — keep the previously-stored content so a
+            // future reuse can still detect any future collision.
+            nextMap.set(hash, existing);
+          }
+          // Element is still tracked in addedElements; nothing else to do.
+        } else {
           const script = createJsonLdScript(data, index);
           if (script) {
             document.head.appendChild(script);
             addedElements.current.add(script);
+            // Capture the content actually written to the element so future
+            // reuses can detect collisions. `script.textContent` is the
+            // already-escaped string produced by `createJsonLdScript`.
+            nextMap.set(hash, {
+              element: script,
+              content: script.textContent ?? '',
+            });
           } else if (enableWarnings) {
             warn(`Invalid structured data at index ${index}`, enableWarnings);
           }
-        });
-      }
+        }
+      });
+
+      jsonLdScriptsRef.current = nextMap;
 
       // Store snapshot
       lastSnapshotRef.current = configSnapshot;
@@ -829,9 +1428,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       logError('Error updating head tags', error);
     }
 
-    // Intentionally no cleanup on unmount: meta/link tags persist across
-    // component lifecycles to avoid flicker during SPA navigation.
-    // Use clearSEOTags() for explicit cleanup when needed.
+    // Intentionally no cleanup on prop change: meta/link tags persist across
+    // re-renders to avoid flicker during SPA navigation. The dedicated
+    // unmount-cleanup effect below handles the optional `clearOnUnmount`
+    // path; outside of that, callers can still invoke the returned
+    // `clearSEOTags()` method explicitly whenever they need to.
   }, [
     // Basic SEO
     title,
@@ -862,6 +1463,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     ogUrl,
     ogLocale,
     ogLocaleAlternates,
+    ogVideo,
+    ogVideos,
+    ogAudio,
+    ogAudios,
+    // Article-specific OG
+    articleAuthor,
+    articleSection,
+    articleTags,
     // Twitter
     twitterCard,
     twitterTitle,
@@ -870,6 +1479,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     twitterImageAlt,
     twitterCreator,
     twitterSite,
+    twitterPlayer,
+    twitterPlayerWidth,
+    twitterPlayerHeight,
+    twitterPlayerStream,
+    twitterPlayerStreamContentType,
     // Robots
     robots,
     noindex,
@@ -894,6 +1508,44 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     updateMetaInternal,
     updateLinkInternal,
   ]);
+
+  // Dedicated unmount-cleanup effect.
+  //
+  // Runs once at mount and registers a cleanup function that fires only on
+  // unmount (because the deps array is empty). The cleanup reads the LATEST
+  // values from refs so changes between mount and unmount are honored —
+  // this is the intended pattern, not a bug. When opted in via
+  // `clearOnUnmount`, it runs the same logic as the returned
+  // `clearSEOTags()` method: only elements carrying the
+  // `data-use-seo="true"` marker are removed; pre-existing user-authored
+  // elements that the hook merely mutated are preserved.
+  //
+  // The `react-hooks/exhaustive-deps` rule warns about reading
+  // `addedElements.current` / `jsonLdScriptsRef.current` inside the
+  // cleanup because for refs that point to a React-managed DOM node the
+  // ref's value may have moved by the time cleanup runs. Here the refs
+  // hold a `Set` and a `Map` that the hook itself owns, not React-managed
+  // nodes, so the standard "snapshot the ref" guidance doesn't apply —
+  // we WANT the up-to-the-moment Set/Map at unmount time. Suppress the
+  // false-positive at the specific lines.
+  useEffect(() => {
+    return () => {
+      if (!clearOnUnmountRef.current) return;
+      if (!canUseDOM()) return;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const tracked = addedElements.current;
+      tracked.forEach((el) => {
+        if (el.getAttribute(SEO_MARKER) === 'true' && el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+      });
+      tracked.clear();
+      // Also drop the JSON-LD reconciliation map so a subsequent remount
+      // starts from a clean slate rather than trying to reuse detached
+      // <script> elements.
+      jsonLdScriptsRef.current.clear();
+    };
+  }, []);
 
   return {
     updateMetaTag,

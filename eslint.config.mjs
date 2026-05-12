@@ -70,4 +70,29 @@ export default [
       eqeqeq: ['error', 'always'],
     },
   },
+
+  // Test-specific overrides: tests legitimately need `any` when forging
+  // narrow runtime fixtures (e.g. invalid inputs to assert defensive
+  // behaviour) and non-null assertions when chaining DOM lookups in
+  // assertions where the test would fail loudly if the value were null.
+  // Unbound-method matchers (e.g. `expect(spy).toHaveBeenCalled()`) are
+  // also intentionally common in tests.
+  {
+    files: ['tests/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/no-empty-function': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/no-misused-promises': 'off',
+      'no-console': 'off',
+    },
+  },
 ];

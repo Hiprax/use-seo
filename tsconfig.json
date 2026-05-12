@@ -19,6 +19,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
+    "ignoreDeprecations": "6.0",
     "outDir": "./dist",
     "rootDir": "./src"
   },

@@ -74,17 +74,33 @@ export function formatTitle(
     return undefined;
   }
 
-  const { template, prefix, suffix, separator = DEFAULT_TITLE_SEPARATOR } = options;
+  const {
+    template,
+    prefix,
+    suffix,
+    separator = DEFAULT_TITLE_SEPARATOR,
+  } = options;
 
   // Template takes priority
   if (template) {
-    // Support {title} placeholder
+    // Support {title} placeholder. Use split/join instead of `String.replace`
+    // because `String.prototype.replace` interprets a STRING replacement's
+    // `$&`, `$1`, `$<name>`, etc. as backreference patterns. A title that
+    // literally contains those tokens (e.g. `'$&'`, `"$<x>"`) would be
+    // mangled — `'Site - $&'` would substitute the entire match (the placeholder
+    // string) back into the result. `split('{title}').join(trimmedTitle)`
+    // performs a literal substitution with no special-character processing,
+    // and as a bonus replaces ALL occurrences of `{title}` in the template
+    // (matching the long-standing behavior of the `%s` branch).
     if (template.includes('{title}')) {
-      return template.replace('{title}', trimmedTitle);
+      return template.split('{title}').join(trimmedTitle);
     }
-    // Support %s placeholder
+    // Support %s placeholder. Same rationale as above: split/join makes the
+    // substitution literal so a title containing `$&`, `$'`, `` $` ``,
+    // `$1`, or `$<name>` cannot trigger the replacement-pattern semantics
+    // of `String.prototype.replace`.
     if (template.includes('%s')) {
-      return template.replace(/%s/g, trimmedTitle);
+      return template.split('%s').join(trimmedTitle);
     }
     // If no placeholder, append with separator (fallback behavior)
     return `${trimmedTitle}${separator}${template}`;
@@ -198,4 +214,3 @@ export function validateKeywordsCount(keywords: string): string[] {
 
   return warnings;
 }
-

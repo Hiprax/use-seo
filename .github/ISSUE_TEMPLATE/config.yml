@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: NPM package page
+    url: https://www.npmjs.com/package/@hiprax/use-seo
+    about: View the published versions, install instructions, and dependency info.
+  - name: GitHub Discussions
+    url: https://github.com/Hiprax/use-seo/discussions
+    about: Ask questions, share use cases, or propose ideas without filing an issue.

@@ -3,6 +3,8 @@
  * @module use-seo/utils/warnings
  */
 
+type ProcessLike = { env?: { NODE_ENV?: string } };
+
 /**
  * Checks if we're in a development environment.
  * Uses multiple fallbacks for different bundler configurations.
@@ -10,12 +12,11 @@
  * @returns True if in development mode
  */
 function isDevelopment(): boolean {
-  // Check for process.env.NODE_ENV (most common)
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env.NODE_ENV === 'development';
-  }
-  // Fallback: assume production if we can't determine
-  return false;
+  // Read `process` via globalThis so an undeclared identifier in a pure
+  // browser runtime can never throw ReferenceError. Bundlers that inline
+  // `process.env.NODE_ENV` substitute the literal regardless of access form.
+  const proc = (globalThis as { process?: ProcessLike }).process;
+  return proc?.env?.NODE_ENV === 'development';
 }
 
 /**
@@ -60,4 +61,3 @@ export function logError(message: string, error?: unknown): void {
 export function shouldEnableWarnings(): boolean {
   return isDevelopment();
 }
-

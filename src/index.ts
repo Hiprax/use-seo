@@ -34,6 +34,8 @@ export type {
   SEOHookReturn,
   // Open Graph
   OpenGraphImage,
+  OpenGraphVideo,
+  OpenGraphAudio,
   // Hreflang
   HreflangLink,
   // Robots
@@ -63,3 +65,9 @@ export {
   MAX_KEYWORDS_COUNT,
 } from './constants';
 
+// Stable, allocation-free FNV-1a string hash used internally to key the
+// JSON-LD reconciliation Map. Re-exported so advanced consumers can build
+// their own change-detection / cache-invalidation flows on top of the same
+// hash function the hook uses (e.g. when memoizing JSON-LD payloads
+// upstream of the hook).
+export { fnv1aHash } from './utils/dom';

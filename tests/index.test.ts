@@ -15,6 +15,7 @@ import {
   MIN_DESCRIPTION_LENGTH,
   MAX_DESCRIPTION_LENGTH,
   MAX_KEYWORDS_COUNT,
+  fnv1aHash,
 } from '../src/index';
 
 import type {
@@ -50,6 +51,14 @@ describe('Package Exports', () => {
     expect(MIN_DESCRIPTION_LENGTH).toBeDefined();
     expect(MAX_DESCRIPTION_LENGTH).toBeDefined();
     expect(MAX_KEYWORDS_COUNT).toBeDefined();
+  });
+
+  it('exports fnv1aHash utility', () => {
+    expect(typeof fnv1aHash).toBe('function');
+    // Sanity check: known FNV-1a behavior — empty string hashes to a stable value
+    expect(typeof fnv1aHash('')).toBe('string');
+    expect(fnv1aHash('a')).toBe(fnv1aHash('a'));
+    expect(fnv1aHash('a')).not.toBe(fnv1aHash('b'));
   });
 });
 

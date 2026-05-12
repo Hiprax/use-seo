@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a problem with @hiprax/use-seo
+title: '[bug] '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The more concrete the reproduction, the faster it can be fixed.
+  - type: input
+    id: version
+    attributes:
+      label: '@hiprax/use-seo version'
+      description: 'Run `npm ls @hiprax/use-seo` or check your `package.json`.'
+      placeholder: '0.3.0'
+    validations:
+      required: true
+  - type: input
+    id: react
+    attributes:
+      label: 'React version'
+      description: 'Run `npm ls react`.'
+      placeholder: '19.2.6'
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: 'Node.js version'
+      description: 'Run `node --version`.'
+      placeholder: 'v22.11.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: 'Rendering environment'
+      options:
+        - Browser (CSR / SPA)
+        - Next.js App Router (Client Component)
+        - Next.js Pages Router
+        - Remix
+        - Vite + React
+        - Server-side (renderToString / renderToPipeableStream)
+        - Other (note in description)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 'Operating system'
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other (note in description)
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 'Reproduction'
+      description: 'Minimal code that reproduces the bug. Inline snippet or a link to a small repo / StackBlitz.'
+      render: tsx
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 'Expected behavior'
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 'Actual behavior'
+      description: 'Include the rendered `<head>` output or the relevant tag(s), plus any error / stack trace.'
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 'Additional context'
+      description: 'Anything else relevant — bundler, hydration setup, conflicting head libraries, etc.'

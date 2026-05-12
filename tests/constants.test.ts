@@ -50,4 +50,3 @@ describe('Constants', () => {
     expect(MAX_KEYWORDS_COUNT).toBe(10);
   });
 });
-

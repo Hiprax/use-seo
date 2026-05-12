@@ -100,17 +100,17 @@ describe('shouldEnableWarnings', () => {
 
   it('returns false when process is undefined', () => {
     const originalProcess = global.process;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+
     (global as any).process = undefined;
 
     // Re-import to test the fallback - use require to avoid caching
     jest.resetModules();
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports */
+    /* eslint-disable @typescript-eslint/no-require-imports */
     const {
       shouldEnableWarnings: freshShouldEnableWarnings,
     } = require('../../src/utils/warnings');
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports */
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    /* eslint-enable @typescript-eslint/no-require-imports */
+
     expect(freshShouldEnableWarnings()).toBe(false);
 
     global.process = originalProcess;

@@ -90,10 +90,20 @@ describe('buildRobots', () => {
     expect(result.googlebot).toBeUndefined();
   });
 
-  it('handles googlebot object that results in empty string', () => {
+  it('emits explicit positive directives for googlebot when index/follow are true', () => {
+    // Previously this returned undefined; explicit `true` now emits the
+    // positive form so users can override a parent <meta> reliably.
     const result = buildRobots({
       index: true,
       googlebot: { index: true, follow: true },
+    });
+    expect(result.googlebot).toBe('index,follow');
+  });
+
+  it('returns undefined googlebot string when googlebot has no defined directives', () => {
+    const result = buildRobots({
+      index: true,
+      googlebot: {},
     });
     expect(result.googlebot).toBeUndefined();
   });
@@ -111,12 +121,28 @@ describe('buildRobots', () => {
     expect(result.robots).toContain('max-snippet:100');
   });
 
-  it('returns undefined robots for object with no active directives', () => {
+  it('emits explicit positive directives when index/follow are explicitly true', () => {
+    // Setting `{ index: true, follow: true }` now emits `index,follow` so
+    // that callers can override a parent <meta name="robots" content="noindex">
+    // (e.g. injected via Tag Manager) without producing an empty robots tag.
     const result = buildRobots({
       index: true,
       follow: true,
     });
+    expect(result.robots).toBe('index,follow');
+  });
+
+  it('returns undefined robots for empty object (no defined directives)', () => {
+    const result = buildRobots({});
     expect(result.robots).toBeUndefined();
+  });
+
+  it('returns undefined robots when only googlebot is set', () => {
+    // The top-level robots string should be undefined because no top-level
+    // directive is set; only the nested googlebot directive is populated.
+    const result = buildRobots({ googlebot: { index: false } });
+    expect(result.robots).toBeUndefined();
+    expect(result.googlebot).toBe('noindex');
   });
 });
 
@@ -190,5 +216,191 @@ describe('buildRobots additional directives', () => {
   it('handles maxSnippet with zero', () => {
     const result = buildRobots({ maxSnippet: 0 });
     expect(result.robots).toContain('max-snippet:0');
+  });
+});
+
+describe('buildRobots positive directives (index/follow tri-state)', () => {
+  it('{ index: true } alone emits "index"', () => {
+    expect(buildRobots({ index: true }).robots).toBe('index');
+  });
+
+  it('{ follow: true } alone emits "follow"', () => {
+    expect(buildRobots({ follow: true }).robots).toBe('follow');
+  });
+
+  it('{ index: true, follow: false } emits "index,nofollow"', () => {
+    expect(buildRobots({ index: true, follow: false }).robots).toBe(
+      'index,nofollow'
+    );
+  });
+
+  it('{ index: false, follow: true } emits "noindex,follow"', () => {
+    expect(buildRobots({ index: false, follow: true }).robots).toBe(
+      'noindex,follow'
+    );
+  });
+
+  it('{ index: false, follow: false } emits "noindex,nofollow"', () => {
+    expect(buildRobots({ index: false, follow: false }).robots).toBe(
+      'noindex,nofollow'
+    );
+  });
+
+  it('{ index: true, follow: true } emits "index,follow"', () => {
+    expect(buildRobots({ index: true, follow: true }).robots).toBe(
+      'index,follow'
+    );
+  });
+
+  it('omits index/follow entirely when undefined', () => {
+    // Only `noarchive` should appear; index/follow are not set, so neither
+    // their positive nor negative form is emitted.
+    expect(buildRobots({ noarchive: true }).robots).toBe('noarchive');
+  });
+
+  it('combines positive directives with maxSnippet/maxImagePreview/maxVideoPreview', () => {
+    const result = buildRobots({
+      index: true,
+      follow: true,
+      maxSnippet: 200,
+      maxImagePreview: 'large',
+      maxVideoPreview: 30,
+    });
+    // Order: index, follow, then noarchive/nosnippet/noimageindex (none),
+    // then max-snippet, max-image-preview, max-video-preview.
+    expect(result.robots).toBe(
+      'index,follow,max-snippet:200,max-image-preview:large,max-video-preview:30'
+    );
+  });
+
+  it('combines positive index with negative directives like noarchive', () => {
+    const result = buildRobots({
+      index: true,
+      follow: false,
+      noarchive: true,
+      nosnippet: true,
+      noimageindex: true,
+      maxSnippet: 'none',
+    });
+    expect(result.robots).toBe(
+      'index,nofollow,noarchive,nosnippet,noimageindex,max-snippet:none'
+    );
+  });
+
+  it('googlebot directives respect the same tri-state semantics', () => {
+    expect(
+      buildRobots({ googlebot: { index: true, follow: true } }).googlebot
+    ).toBe('index,follow');
+    expect(
+      buildRobots({ googlebot: { index: true, follow: false } }).googlebot
+    ).toBe('index,nofollow');
+    expect(
+      buildRobots({ googlebot: { index: false, follow: true } }).googlebot
+    ).toBe('noindex,follow');
+    expect(
+      buildRobots({
+        googlebot: {
+          index: true,
+          follow: true,
+          maxSnippet: 50,
+          maxImagePreview: 'standard',
+          maxVideoPreview: 'none',
+        },
+      }).googlebot
+    ).toBe(
+      'index,follow,max-snippet:50,max-image-preview:standard,max-video-preview:none'
+    );
+  });
+
+  it('top-level positive directives coexist with googlebot overrides', () => {
+    const result = buildRobots({
+      index: true,
+      follow: true,
+      googlebot: { index: false },
+    });
+    expect(result.robots).toBe('index,follow');
+    expect(result.googlebot).toBe('noindex');
+  });
+});
+
+describe('buildRobots unavailable_after directive', () => {
+  it('emits "unavailable_after: <value>" with an ISO 8601 datetime', () => {
+    const result = buildRobots({
+      unavailableAfter: '2025-12-31T23:59:59Z',
+    });
+    expect(result.robots).toBe('unavailable_after: 2025-12-31T23:59:59Z');
+  });
+
+  it('emits "unavailable_after: <value>" with an RFC 850 datetime', () => {
+    // Per Google's spec, RFC 850 ("Friday, 31-Dec-25 23:59:59 GMT") is also
+    // accepted; the serializer passes the value through verbatim.
+    const result = buildRobots({
+      unavailableAfter: 'Friday, 31-Dec-25 23:59:59 GMT',
+    });
+    expect(result.robots).toBe(
+      'unavailable_after: Friday, 31-Dec-25 23:59:59 GMT'
+    );
+  });
+
+  it('combines unavailable_after with index/follow directives', () => {
+    const result = buildRobots({
+      index: true,
+      follow: true,
+      unavailableAfter: '2025-12-31T23:59:59Z',
+    });
+    expect(result.robots).toBe(
+      'index,follow,unavailable_after: 2025-12-31T23:59:59Z'
+    );
+  });
+
+  it('omits unavailable_after when not set', () => {
+    expect(buildRobots({ index: true }).robots).toBe('index');
+  });
+
+  it('omits unavailable_after when empty string is passed', () => {
+    // An empty string is truthy-coerced to false by `if (opt.unavailableAfter)`,
+    // so it's omitted — desirable behavior because an empty value would
+    // otherwise emit `unavailable_after: ` which is malformed.
+    const result = buildRobots({
+      index: true,
+      unavailableAfter: '',
+    });
+    expect(result.robots).toBe('index');
+  });
+
+  it('respects unavailable_after inside googlebot directives', () => {
+    const result = buildRobots({
+      googlebot: { unavailableAfter: '2025-12-31T23:59:59Z' },
+    });
+    expect(result.googlebot).toBe('unavailable_after: 2025-12-31T23:59:59Z');
+  });
+});
+
+describe('buildRobots precedence: robots prop wins over deprecated flags', () => {
+  // The `useSEO` hook resolves precedence as:
+  //   effectiveRobots = robots ?? buildRobotsFromFlags({ noindex, nofollow, ... })
+  // So when both are present, the `robots` prop wins. These tests verify
+  // that the underlying utility functions support this precedence cleanly:
+  // a caller that explicitly passes `{ index: true, follow: true }` to
+  // override deprecated flags now gets a meaningful robots string instead
+  // of an empty one.
+
+  it('passing { index: true } to buildRobots returns the positive form', () => {
+    // This is the building block that makes precedence work in useSEO:
+    // when `robots` is set, we ignore the deprecated flags entirely, but
+    // the user must still be able to *opt back in* to "index" explicitly.
+    expect(buildRobots({ index: true }).robots).toBe('index');
+  });
+
+  it('buildRobotsFromFlags still emits the negative form unchanged', () => {
+    // Sanity: deprecated flags are unchanged — they only express the
+    // negative form and that's what the consumer would expect.
+    expect(buildRobotsFromFlags({ noindex: true, nofollow: true })).toEqual({
+      index: false,
+      follow: false,
+      noarchive: undefined,
+      nosnippet: undefined,
+      noimageindex: undefined,
+    });
   });
 });

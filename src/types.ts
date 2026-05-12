@@ -61,6 +61,90 @@ export interface OpenGraphImage {
   type?: string;
 }
 
+/**
+ * Represents a single Open Graph video with optional metadata.
+ *
+ * @example
+ * ```typescript
+ * const video: OpenGraphVideo = {
+ *   url: 'https://example.com/video.mp4',
+ *   width: 1280,
+ *   height: 720,
+ *   type: 'video/mp4',
+ *   alt: 'Video description',
+ * };
+ * ```
+ *
+ * @see {@link https://ogp.me/#structured Open Graph Video Properties}
+ *
+ * @since 0.2.3
+ */
+export interface OpenGraphVideo {
+  /**
+   * The URL of the video. Must be an absolute URL.
+   */
+  url: string;
+
+  /**
+   * HTTPS URL of the video for secure connections.
+   * Automatically inferred from `url` if it starts with 'https:'.
+   */
+  secureUrl?: string;
+
+  /**
+   * MIME type of the video (e.g., 'video/mp4', 'video/webm').
+   */
+  type?: string;
+
+  /**
+   * Width of the video in pixels.
+   */
+  width?: number;
+
+  /**
+   * Height of the video in pixels.
+   */
+  height?: number;
+
+  /**
+   * Alternative text description for accessibility.
+   */
+  alt?: string;
+}
+
+/**
+ * Represents a single Open Graph audio with optional metadata.
+ *
+ * @example
+ * ```typescript
+ * const audio: OpenGraphAudio = {
+ *   url: 'https://example.com/audio.mp3',
+ *   type: 'audio/mpeg',
+ * };
+ * ```
+ *
+ * @see {@link https://ogp.me/#structured Open Graph Audio Properties}
+ *
+ * @since 0.2.3
+ */
+export interface OpenGraphAudio {
+  /**
+   * The URL of the audio. Must be an absolute URL.
+   */
+  url: string;
+
+  /**
+   * HTTPS URL of the audio for secure connections.
+   * Automatically inferred from `url` if it starts with 'https:'.
+   */
+  secureUrl?: string;
+
+  /**
+   * MIME type of the audio (e.g., 'audio/mpeg', 'audio/ogg').
+   */
+  type?: string;
+}
+
 // =============================================================================
 // Hreflang Types
 // =============================================================================
@@ -168,6 +252,28 @@ export interface RobotsObject {
    * Use a number for seconds, or 'none' to disable video previews.
    */
   maxVideoPreview?: number | 'none';
+
+  /**
+   * Time after which the page should no longer be indexed.
+   * Must be a date in either RFC 850 (`Friday, 31-Dec-25 23:59:59 GMT`) or
+   * ISO 8601 (`2025-12-31T23:59:59Z`) format. After this time, the page is
+   * dropped from search results without re-crawling.
+   *
+   * Serializes as `unavailable_after: <value>` in the robots meta tag.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   robots: { unavailableAfter: '2025-12-31T23:59:59Z' },
+   * });
+   * // Emits: <meta name="robots" content="unavailable_after: 2025-12-31T23:59:59Z">
+   * ```
+   *
+   * @see {@link https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag Google: unavailable_after}
+   *
+   * @since 0.2.3
+   */
+  unavailableAfter?: string;
 
   /**
    * Specific directives for Googlebot crawler.
@@ -632,6 +738,131 @@ export interface SEOProps {
    */
   ogLocaleAlternates?: string[];
 
+  /**
+   * Single Open Graph video URL.
+   * For multiple videos or detailed video metadata, use `ogVideos` instead.
+   *
+   * Emits `<meta property="og:video" content="...">` and (when the URL starts
+   * with `https:`) `<meta property="og:video:secure_url" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  ogVideo?: string;
+
+  /**
+   * Array of Open Graph videos with full metadata.
+   * Preferred over `ogVideo` for richer control.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   ogVideos: [
+   *     { url: 'https://example.com/video.mp4', width: 1280, height: 720, type: 'video/mp4' },
+   *   ],
+   * });
+   * ```
+   *
+   * @see {@link https://ogp.me/#structured Open Graph Video Properties}
+   *
+   * @since 0.2.3
+   */
+  ogVideos?: OpenGraphVideo[];
+
+  /**
+   * Single Open Graph audio URL.
+   * For multiple audio sources, use `ogAudios` instead.
+   *
+   * Emits `<meta property="og:audio" content="...">` and (when the URL starts
+   * with `https:`) `<meta property="og:audio:secure_url" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  ogAudio?: string;
+
+  /**
+   * Array of Open Graph audio sources with full metadata.
+   * Preferred over `ogAudio` for richer control.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   ogAudios: [
+   *     { url: 'https://example.com/audio.mp3', type: 'audio/mpeg' },
+   *   ],
+   * });
+   * ```
+   *
+   * @see {@link https://ogp.me/#structured Open Graph Audio Properties}
+   *
+   * @since 0.2.3
+   */
+  ogAudios?: OpenGraphAudio[];
+
+  // ===========================================================================
+  // Article-specific Open Graph (when ogType === 'article')
+  // ===========================================================================
+
+  /**
+   * Article author(s) for `article:author` Open Graph meta tag.
+   * Can be a single URL/identifier or an array. Each entry emits its own
+   * `<meta property="article:author" content="...">` element.
+   *
+   * Per the Open Graph article extension, the value should be a profile URL
+   * or identifier that resolves to the author.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   ogType: 'article',
+   *   articleAuthor: 'https://example.com/authors/jane',
+   * });
+   *
+   * useSEO({
+   *   ogType: 'article',
+   *   articleAuthor: [
+   *     'https://example.com/authors/jane',
+   *     'https://example.com/authors/john',
+   *   ],
+   * });
+   * ```
+   *
+   * @see {@link https://ogp.me/#type_article Open Graph Article}
+   *
+   * @since 0.2.3
+   */
+  articleAuthor?: string | string[];
+
+  /**
+   * Article section / category for `article:section` Open Graph meta tag.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   ogType: 'article',
+   *   articleSection: 'Technology',
+   * });
+   * ```
+   *
+   * @since 0.2.3
+   */
+  articleSection?: string;
+
+  /**
+   * Tags / topics for the article. Each tag emits its own
+   * `<meta property="article:tag" content="...">` element.
+   *
+   * @example
+   * ```typescript
+   * useSEO({
+   *   ogType: 'article',
+   *   articleTags: ['React', 'TypeScript', 'SEO'],
+   * });
+   * ```
+   *
+   * @since 0.2.3
+   */
+  articleTags?: string[];
+
   // ===========================================================================
   // Twitter Card
   // ===========================================================================
@@ -689,6 +920,49 @@ export interface SEOProps {
    */
   twitterSite?: string;
 
+  /**
+   * Player Card iframe URL (HTTPS-only). Used when `twitterCard === 'player'`.
+   * Emits `<meta name="twitter:player" content="...">`.
+   *
+   * @see {@link https://developer.x.com/en/docs/x-for-websites/cards/overview/player-card Twitter Player Card}
+   *
+   * @since 0.2.3
+   */
+  twitterPlayer?: string;
+
+  /**
+   * Width of the Twitter player iframe in pixels.
+   * Emits `<meta name="twitter:player:width" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  twitterPlayerWidth?: number;
+
+  /**
+   * Height of the Twitter player iframe in pixels.
+   * Emits `<meta name="twitter:player:height" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  twitterPlayerHeight?: number;
+
+  /**
+   * URL to a raw video or audio stream. Optional companion to
+   * `twitterPlayer` for direct streaming inside the timeline.
+   * Emits `<meta name="twitter:player:stream" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  twitterPlayerStream?: string;
+
+  /**
+   * MIME type of the player stream (e.g., `video/mp4`).
+   * Emits `<meta name="twitter:player:stream:content_type" content="...">`.
+   *
+   * @since 0.2.3
+   */
+  twitterPlayerStreamContentType?: string;
+
   // ===========================================================================
   // Robots
   // ===========================================================================
@@ -696,6 +970,17 @@ export interface SEOProps {
   /**
    * Robots meta tag configuration.
    * Can be a string (e.g., 'noindex,nofollow') or a detailed configuration object.
+   *
+   * **Precedence:** when both the `robots` prop and the deprecated boolean
+   * flags (`noindex`, `nofollow`, `noarchive`, `nosnippet`, `noimageindex`)
+   * are passed at the same time, `robots` wins outright — the flags are
+   * only consulted when `robots` is `undefined`.
+   *
+   * **Tri-state for `index` / `follow`:**
+   * - `true` → emit the positive directive (`index` / `follow`) explicitly,
+   *   useful for overriding a parent `<meta name="robots" content="noindex">`.
+   * - `false` → emit the negative directive (`noindex` / `nofollow`).
+   * - `undefined` → omit the directive (search-engine default applies).
    *
    * @example
    * ```typescript
@@ -711,6 +996,10 @@ export interface SEOProps {
    *     maxImagePreview: 'large',
    *   },
    * });
+   *
+   * // Explicit positive directives override a parent meta robots tag.
+   * useSEO({ robots: { index: true, follow: true } });
+   * // Emits: <meta name="robots" content="index,follow">
    * ```
    */
   robots?: RobotsOptions;
@@ -848,6 +1137,49 @@ export interface SEOProps {
    * @default true
    */
   validateUrls?: boolean;
+
+  /**
+   * Remove all hook-created `<head>` elements when the component unmounts.
+   *
+   * By default the hook leaves its created tags in place across component
+   * unmounts (the historical behavior — meta/link tags persist across SPA
+   * route changes to avoid flicker between pages). Setting this to `true`
+   * runs the same logic as the returned `clearSEOTags()` method on unmount,
+   * removing only elements that carry the `data-use-seo="true"` marker.
+   * Pre-existing user-authored elements that the hook merely mutated are
+   * never removed.
+   *
+   * Useful when the hook lives inside a transient component (modal,
+   * widget, route the user navigates away from) and you want the head
+   * to return to its pre-mount state.
+   *
+   * @default false
+   *
+   * @example
+   * ```tsx
+   * // A modal that should not leave its meta tags behind when closed.
+   * function ShareModal() {
+   *   useSEO({
+   *     ogTitle: 'Share this content',
+   *     ogImage: 'https://example.com/share.jpg',
+   *     clearOnUnmount: true,
+   *   });
+   *   return <div>...</div>;
+   * }
+   * ```
+   *
+   * @remarks
+   * **Caveat for `preventDuplicates: false`:** when duplicates are allowed,
+   * the hook may create multiple meta tags with the same key across
+   * renders. Each newly-created element is tracked individually, so
+   * `clearOnUnmount` will remove every duplicate the hook authored —
+   * which is usually the desired behavior, but can be surprising if you
+   * expected only the most recent value to be cleaned up. Prefer the
+   * default `preventDuplicates: true` whenever possible.
+   *
+   * @since 0.2.3
+   */
+  clearOnUnmount?: boolean;
 
   // ===========================================================================
   // Deprecated Options (for backwards compatibility)

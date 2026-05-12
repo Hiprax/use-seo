@@ -18,29 +18,52 @@ export interface RobotsResult {
 /**
  * Converts a RobotsObject to a comma-separated directive string.
  *
+ * Boolean fields use a tri-state semantics:
+ * - `true`  → emit the positive directive (e.g. `index`, `follow`)
+ * - `false` → emit the negative directive (e.g. `noindex`, `nofollow`)
+ * - `undefined` → omit the directive entirely (search-engine default applies)
+ *
+ * The positive forms (`index`, `follow`) are valid robots directives per
+ * Google's spec — they are useful for explicitly overriding a parent
+ * directive (e.g. one injected via Tag Manager or via a deprecated boolean
+ * flag) without producing an empty robots tag.
+ *
  * @param opt - The robots configuration object
  * @returns Comma-separated robots directives string
+ *
+ * @see {@link https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag Google: Robots meta tag specification}
  *
  * @example
  * ```typescript
  * robotsObjectToString({ index: false, follow: true, noarchive: true });
- * // Returns: 'noindex,noarchive'
+ * // Returns: 'noindex,follow,noarchive'
+ *
+ * robotsObjectToString({ index: true, follow: true });
+ * // Returns: 'index,follow' (positive form is now emitted explicitly)
  * ```
  */
 function robotsObjectToString(opt: RobotsObject): string {
   const parts: string[] = [];
 
-  // Index/noindex
+  // Index/noindex — emit positive form when explicitly true so users can
+  // override a parent `<meta name="robots" content="noindex">` (e.g.
+  // injected via Tag Manager) instead of the directive silently dropping.
   if (opt.index === false) {
     parts.push('noindex');
+  } else if (opt.index === true) {
+    parts.push('index');
   }
 
-  // Follow/nofollow
+  // Follow/nofollow — same rationale as index above.
   if (opt.follow === false) {
     parts.push('nofollow');
+  } else if (opt.follow === true) {
+    parts.push('follow');
   }
 
-  // Other directives
+  // Other directives. These don't have a useful "positive" form in the wild
+  // (the search engine default IS the positive form), so we only emit when
+  // explicitly true.
   if (opt.noarchive === true) {
     parts.push('noarchive');
   }
@@ -66,11 +89,25 @@ function robotsObjectToString(opt: RobotsObject): string {
     parts.push(`max-video-preview:${opt.maxVideoPreview}`);
   }
 
+  // Time-limited indexing. Per Google's spec, the value is appended verbatim
+  // (consumers should pass an RFC 850 or ISO 8601 datetime string).
+  if (opt.unavailableAfter) {
+    parts.push(`unavailable_after: ${opt.unavailableAfter}`);
+  }
+
   return parts.join(',');
 }
 
 /**
  * Builds robots and googlebot meta tag content from configuration.
+ *
+ * **Precedence within `useSEO`:** when both the `robots` prop and the
+ * deprecated boolean flags (`noindex`, `nofollow`, `noarchive`, `nosnippet`,
+ * `noimageindex`) are passed at the same time, the `robots` prop wins
+ * outright — the flags are only consulted when `robots` is `undefined`.
+ * To explicitly override a deprecated flag (or a parent robots tag) with
+ * a positive directive, pass `robots: { index: true, follow: true }`; the
+ * serializer will emit `index,follow` rather than dropping silently.
  *
  * @param options - The robots configuration (string or object)
  * @returns Object with robots and optional googlebot directive strings
@@ -81,14 +118,18 @@ function robotsObjectToString(opt: RobotsObject): string {
  * buildRobots('noindex,nofollow');
  * // Returns: { robots: 'noindex,nofollow' }
  *
- * // Object input
+ * // Explicit positive directives (useful to override a parent robots tag)
+ * buildRobots({ index: true, follow: true });
+ * // Returns: { robots: 'index,follow' }
+ *
+ * // Mixed object input
  * buildRobots({
  *   index: true,
  *   follow: true,
  *   maxSnippet: 150,
  *   googlebot: { maxVideoPreview: 0 },
  * });
- * // Returns: { robots: 'max-snippet:150', googlebot: 'max-video-preview:0' }
+ * // Returns: { robots: 'index,follow,max-snippet:150', googlebot: 'max-video-preview:0' }
  * ```
  */
 export function buildRobots(options?: RobotsOptions): RobotsResult {

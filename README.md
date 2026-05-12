@@ -4,6 +4,9 @@
 [![npm version](https://img.shields.io/npm/v/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
 [![npm downloads](https://img.shields.io/npm/dm/@hiprax/use-seo.svg)](https://www.npmjs.com/package/@hiprax/use-seo)
+[![CI](https://github.com/Hiprax/use-seo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hiprax/use-seo/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Hiprax/use-seo/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Hiprax/use-seo/actions/workflows/codeql.yml)
+[![Provenance](https://img.shields.io/badge/npm-provenance-7cb342?logo=npm)](https://docs.npmjs.com/generating-provenance-statements)
 
 A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Cards, structured data (JSON-LD), and more. Fully typed with TypeScript and optimized for all React versions (16.8+).
 
@@ -14,24 +17,34 @@ A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Ca
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Module Formats (ESM / CJS)](#module-formats-esm--cjs)
 - [API Reference](#api-reference)
   - [Basic SEO](#basic-seo)
   - [Title Formatting](#title-formatting)
   - [Open Graph](#open-graph)
+  - [Open Graph Video](#open-graph-video)
+  - [Open Graph Audio](#open-graph-audio)
+  - [Article Extensions](#article-extensions)
   - [Twitter Cards](#twitter-cards)
+  - [Twitter Player Card](#twitter-player-card)
   - [Article Metadata](#article-metadata)
   - [Robots Directives](#robots-directives)
   - [International SEO (Hreflang)](#international-seo-hreflang)
   - [Pagination](#pagination)
   - [Structured Data (JSON-LD)](#structured-data-json-ld)
   - [Additional Custom Tags](#additional-custom-tags)
+  - [Tag Precedence (built-in vs additional)](#tag-precedence-built-in-vs-additional)
+  - [Common Recipes](#common-recipes)
   - [Advanced Options](#advanced-options)
+- [Lifecycle / Cleanup](#lifecycle--cleanup)
+- [Performance Notes](#performance-notes)
 - [Hook Return Methods](#hook-return-methods)
 - [TypeScript Support](#typescript-support)
 - [SSR Considerations](#ssr-considerations)
 - [Constants](#constants)
 - [Best Practices](#best-practices)
 - [Development](#development)
+- [Coverage](#coverage)
 - [Browser Support](#browser-support)
 - [Contributing](#contributing)
 - [License](#license)
@@ -47,7 +60,7 @@ A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Ca
 - ⚡ **Performance Optimized** - Minimal re-renders with change detection
 - 🔒 **SSR Safe** - Works with Next.js, Remix, and other SSR frameworks
 - 📝 **Fully Typed** - Complete TypeScript support with IntelliSense
-- 🧪 **100% Test Coverage** - Thoroughly tested for reliability
+- 🧪 **High test coverage** - See the [Coverage](#coverage) section for the latest report
 
 ## Installation
 
@@ -84,6 +97,22 @@ function ProductPage() {
   return <div>Product content</div>;
 }
 ```
+
+## Module Formats (ESM / CJS)
+
+The package is published as a dual-format bundle (`dist/index.js` for ESM, `dist/index.cjs` for CJS) with TypeScript declarations for both. Both ergonomic forms below work in either format.
+
+```ts
+// ESM (modern bundlers, Vite, Webpack 5, Rollup, esbuild, Next.js, Remix, ...)
+import { useSEO } from '@hiprax/use-seo';
+import useSEO from '@hiprax/use-seo'; // default re-export of the same function
+
+// CommonJS (Node scripts, classic toolchains)
+const { useSEO } = require('@hiprax/use-seo');
+const useSEO = require('@hiprax/use-seo'); // also works — see note below
+```
+
+> **CJS interop note:** Earlier alpha builds of `@hiprax/use-seo` exposed the hook only as a `.default` property when consumed via `require()`, so `const useSEO = require('@hiprax/use-seo')` returned an object instead of the function. Starting with `0.2.3` the CJS bundle uses a small interop footer that re-points `module.exports` to the default export and re-attaches every named export as a property on it, so all three of `const useSEO = require(...)`, `const { useSEO } = require(...)`, and `require(...).default` resolve to the same callable hook. The TypeScript declarations under `dist/index.d.ts` (CJS) and `dist/index.d.mts` (ESM) describe the same shape; the package's `exports` field maps each consumer to the right one automatically under `moduleResolution: "node16" | "nodenext" | "bundler"`.
 
 ## API Reference
 
@@ -201,6 +230,96 @@ useSEO({
 });
 ```
 
+### Open Graph Video
+
+Typed support for `og:video` and its sub-properties. Use `ogVideos` for full
+metadata or `ogVideo` for a quick single-URL shorthand.
+
+```tsx
+useSEO({
+  ogVideos: [
+    {
+      url: 'https://example.com/video.mp4',
+      type: 'video/mp4',
+      width: 1280,
+      height: 720,
+      alt: 'Demo video',
+      // secureUrl is auto-inferred when `url` starts with https:
+      secureUrl: 'https://example.com/video.mp4',
+    },
+  ],
+});
+
+// Single-video shorthand (mirrors the legacy `ogImage` form)
+useSEO({
+  ogVideo: 'https://example.com/video.mp4',
+});
+```
+
+Emits `<meta property="og:video">`, `og:video:secure_url`, `og:video:type`,
+`og:video:width`, `og:video:height`, and `og:video:alt`. Stale tags are
+cleaned up on re-render when the prop is removed (parity with `ogImages`).
+
+### Open Graph Audio
+
+Typed support for `og:audio` and its sub-properties.
+
+```tsx
+useSEO({
+  ogAudios: [
+    {
+      url: 'https://example.com/audio.mp3',
+      type: 'audio/mpeg',
+    },
+  ],
+});
+
+// Single-audio shorthand
+useSEO({
+  ogAudio: 'https://example.com/audio.mp3',
+});
+```
+
+Emits `<meta property="og:audio">`, `og:audio:secure_url`, and
+`og:audio:type`. URLs are validated against `validateUrls`.
+
+### Article Extensions
+
+When `ogType: 'article'`, the OG Article extension supports several typed
+properties for the article's authorship and topical metadata:
+
+```tsx
+useSEO({
+  ogType: 'article',
+
+  // Single author (URL or identifier)
+  articleAuthor: 'https://example.com/authors/jane',
+
+  // Or multiple authors — each emits its own meta tag
+  // articleAuthor: [
+  //   'https://example.com/authors/jane',
+  //   'https://example.com/authors/john',
+  // ],
+
+  // Section / category
+  articleSection: 'Technology',
+
+  // Topic tags — each emits its own meta tag
+  articleTags: ['React', 'TypeScript', 'SEO'],
+
+  // Existing typed dates
+  publishedTime: '2024-01-15T10:30:00Z',
+  modifiedTime: '2024-02-01T14:20:00Z',
+  expirationTime: '2025-12-31T23:59:59Z',
+});
+```
+
+`articleAuthor` accepts either a single string or `string[]`. URL-shaped
+values (`https?://…`) are validated against `validateUrls`; plain text
+identifiers (e.g., `"Jane Doe"`) pass through unchanged. Multi-value tags
+follow the same cleanup-on-removal pattern as `ogImages` and
+`ogLocaleAlternates`.
+
 ### Twitter Cards
 
 ```tsx
@@ -223,6 +342,32 @@ useSEO({
   twitterSite: '@site_handle',
 });
 ```
+
+### Twitter Player Card
+
+Typed support for the Twitter / X **Player Card**, which lets you embed an
+in-timeline media player. Use these fields together with
+`twitterCard: 'player'`.
+
+```tsx
+useSEO({
+  twitterCard: 'player',
+
+  // HTTPS URL of the player iframe
+  twitterPlayer: 'https://example.com/player',
+  twitterPlayerWidth: 640,
+  twitterPlayerHeight: 360,
+
+  // Optional raw stream for direct timeline playback
+  twitterPlayerStream: 'https://example.com/stream.mp4',
+  twitterPlayerStreamContentType: 'video/mp4',
+});
+```
+
+Emits `<meta name="twitter:player">`, `twitter:player:width`,
+`twitter:player:height`, `twitter:player:stream`, and
+`twitter:player:stream:content_type`. URL fields are validated against
+`validateUrls`.
 
 ### Article Metadata
 
@@ -261,6 +406,9 @@ useSEO({
     maxImagePreview: 'large',
     maxVideoPreview: 30,
 
+    // Time-limited de-indexing — RFC 850 or ISO 8601 datetime
+    unavailableAfter: '2025-12-31T23:59:59Z',
+
     // Googlebot-specific directives
     googlebot: {
       index: true,
@@ -272,6 +420,14 @@ useSEO({
 ```
 
 > **Note:** The deprecated boolean props `noindex`, `nofollow`, `noarchive`, `nosnippet`, and `noimageindex` are still supported for backwards compatibility, but using the `robots` object format above is preferred.
+
+> **Precedence:** When both the `robots` prop and the deprecated boolean flags are passed at the same time, **`robots` wins** — the deprecated flags are only consulted when `robots` is `undefined`. To explicitly emit the positive directives `index` and `follow` (for example, to override a parent `<meta name="robots" content="noindex">` injected by Tag Manager or by a layout component), pass `robots: { index: true, follow: true }`; the hook will emit the literal string `index,follow` rather than producing an empty robots tag.
+>
+> Tri-state semantics for `index` / `follow`:
+>
+> - `true` → emit the positive directive (`index` / `follow`)
+> - `false` → emit the negative directive (`noindex` / `nofollow`)
+> - `undefined` → omit the directive entirely (the search-engine default applies)
 
 ### International SEO (Hreflang)
 
@@ -377,6 +533,202 @@ useSEO({
 });
 ```
 
+### Tag Precedence (built-in vs additional)
+
+When the same `<head>` element is targeted by BOTH a typed built-in prop
+(e.g. `description`, `ogTitle`, `twitterImage`, `canonical`) AND by an
+`additionalMetaTags` / `additionalLinkTags` entry whose `name`,
+`property`, or `httpEquiv` matches the built-in, **the
+`additionalMetaTags` / `additionalLinkTags` entry wins**. The same rule
+applies between two `additionalMetaTags` entries that share an
+identifier — the LAST one in array order is the value that ends up on
+the element.
+
+This is a deliberate consequence of two implementation details:
+
+1. The hook applies built-in props FIRST, then walks
+   `additionalMetaTags` and `additionalLinkTags` in order.
+2. With the default `preventDuplicates: true`, the helper that creates
+   a meta/link tag will REUSE any existing element with a matching key
+   (whether the hook created it on the same render, the hook created it
+   on a previous render, or the user authored it directly in the HTML)
+   and overwrite its `content` / `href`. So the additional-tag pass
+   mutates the very same element the built-in pass just emitted.
+
+Practical consequences:
+
+- You can override a built-in field on a per-page basis without losing
+  the typed convenience for the other fields:
+  ```tsx
+  useSEO({
+    description: 'Default description',
+    additionalMetaTags: [
+      // Wins over `description` above on this page.
+      { name: 'description', content: 'Promotional description' },
+    ],
+  });
+  ```
+- You can use the additional-tag arrays to inject variants the typed
+  props don't directly model (e.g. a `media`-scoped `theme-color`)
+  without competing with the built-in pass.
+- If you author a `<meta name="description">` directly in your HTML
+  shell AND pass `description` to the hook, the hook will mutate your
+  static element on the first render — `clearSEOTags()` will NOT
+  remove it later because the hook only removes elements that carry
+  the `data-use-seo="true"` marker (set ONLY on the hook's create
+  path).
+
+If you instead want the typed prop to win, omit the matching entry from
+`additionalMetaTags` (or pass `preventDuplicates: false`, which causes
+the additional-tag pass to APPEND a duplicate element rather than
+mutating the built-in element — both will be present in the DOM, which
+is rarely what you want).
+
+### Common Recipes
+
+The hook covers the most-used SEO surface area with first-class typed
+props. For everything else (PWA chrome, AI-crawler directives, social
+proof for Facebook / LinkedIn, App-Store deep links, etc.), use the
+`additionalMetaTags` and `additionalLinkTags` arrays. URL-shaped
+properties are validated automatically when `validateUrls: true`.
+
+#### PWA chrome (theme color, viewport, status bar)
+
+```tsx
+useSEO({
+  additionalMetaTags: [
+    { name: 'theme-color', content: '#000000' },
+    {
+      name: 'theme-color',
+      content: '#ffffff',
+      // Use additionalMetaTags multiple times for media-query variants if
+      // you need light/dark theme-color overrides; the hook will emit each.
+    },
+    { name: 'color-scheme', content: 'light dark' },
+    { name: 'application-name', content: 'My App' },
+    { name: 'format-detection', content: 'telephone=no' },
+    // Apple-specific (iOS Safari home-screen install)
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    {
+      name: 'apple-mobile-web-app-status-bar-style',
+      content: 'black-translucent',
+    },
+    { name: 'apple-mobile-web-app-title', content: 'My App' },
+  ],
+  additionalLinkTags: [
+    { rel: 'manifest', href: '/manifest.webmanifest' },
+    {
+      rel: 'apple-touch-icon',
+      href: '/apple-touch-icon.png',
+      sizes: '180x180',
+    },
+    { rel: 'mask-icon', href: '/safari-pinned-tab.svg' },
+  ],
+});
+```
+
+#### AI / LLM crawler directives
+
+```tsx
+useSEO({
+  additionalMetaTags: [
+    // Block major AI crawlers from training on this page
+    { name: 'robots', content: 'noai, noimageai' },
+    // OpenAI / GPTBot
+    { name: 'GPTBot', content: 'noindex,nofollow' },
+    // Google-Extended (Bard / Gemini training opt-out)
+    { name: 'Google-Extended', content: 'noindex' },
+    // Anthropic (ClaudeBot)
+    { name: 'ClaudeBot', content: 'noindex' },
+    // Common Crawl (used by many model trainers)
+    { name: 'CCBot', content: 'noindex' },
+  ],
+});
+```
+
+> Note: when you also want a typed `robots` directive on the same page,
+> prefer setting it via `robots: { … }` and use `additionalMetaTags` only
+> for the AI-specific named bots above.
+
+#### Referrer / format-detection / no-translate
+
+```tsx
+useSEO({
+  additionalMetaTags: [
+    { name: 'referrer', content: 'strict-origin-when-cross-origin' },
+    { name: 'format-detection', content: 'telephone=no, email=no' },
+    { name: 'google', content: 'notranslate' },
+    { name: 'google-site-verification', content: 'YOUR-VERIFICATION-TOKEN' },
+  ],
+});
+```
+
+#### Facebook App ID / LinkedIn
+
+```tsx
+useSEO({
+  additionalMetaTags: [
+    { property: 'fb:app_id', content: '123456789' },
+    { property: 'fb:pages', content: '987654321' },
+    // LinkedIn picks up `og:title` / `og:description` / `og:image`
+    // automatically — there's no LinkedIn-specific tag family.
+  ],
+});
+```
+
+#### Twitter App Card (deep links to native apps)
+
+For the App Card, use `additionalMetaTags` with the dotted name family.
+
+```tsx
+useSEO({
+  twitterCard: 'app',
+  additionalMetaTags: [
+    { name: 'twitter:app:name:iphone', content: 'My App' },
+    { name: 'twitter:app:id:iphone', content: '1234567890' },
+    { name: 'twitter:app:url:iphone', content: 'myapp://path/to/page' },
+
+    { name: 'twitter:app:name:ipad', content: 'My App' },
+    { name: 'twitter:app:id:ipad', content: '1234567890' },
+    { name: 'twitter:app:url:ipad', content: 'myapp://path/to/page' },
+
+    { name: 'twitter:app:name:googleplay', content: 'My App' },
+    {
+      name: 'twitter:app:id:googleplay',
+      content: 'com.example.myapp',
+    },
+    { name: 'twitter:app:url:googleplay', content: 'myapp://path/to/page' },
+  ],
+});
+```
+
+#### Profile / Book / Music OG types
+
+OG profile/book/music metadata uses simple `property` namespacing —
+delegate to `additionalMetaTags`:
+
+```tsx
+useSEO({
+  ogType: 'profile',
+  additionalMetaTags: [
+    { property: 'profile:first_name', content: 'Jane' },
+    { property: 'profile:last_name', content: 'Doe' },
+    { property: 'profile:username', content: 'janedoe' },
+    { property: 'profile:gender', content: 'female' },
+  ],
+});
+
+useSEO({
+  ogType: 'book',
+  additionalMetaTags: [
+    { property: 'book:author', content: 'https://example.com/authors/jane' },
+    { property: 'book:isbn', content: '978-3-16-148410-0' },
+    { property: 'book:release_date', content: '2024-03-15' },
+    { property: 'book:tag', content: 'fiction' },
+  ],
+});
+```
+
 ### Advanced Options
 
 ```tsx
@@ -389,8 +741,24 @@ useSEO({
 
   // Validate URLs in meta/link tags (default: true)
   validateUrls: true,
+
+  // Remove all hook-created head elements when this component unmounts
+  // (default: false — see "Lifecycle / Cleanup" below)
+  clearOnUnmount: false,
 });
 ```
+
+> **Caveat for `preventDuplicates: false`:** when this option is `false`, the
+> hook will not deduplicate meta tags — repeated `updateMetaTag` calls (or
+> updates to multi-value props that pass through `getOrCreateMeta`) can leave
+> several `<meta>` elements with the same `name`/`property` in the document.
+> Subsequent mutations through the same key will only see the first match,
+> so values can appear "stuck" or "stale" because the hook is updating one
+> element while another duplicate carries the previous value. Stick to the
+> default (`true`) unless you have a concrete reason to allow duplicates,
+> and pair this option with `clearOnUnmount: true` (or an explicit
+> `clearSEOTags()` call) so duplicate elements do not accumulate over the
+> component's lifetime.
 
 ### Automatic Behavior
 
@@ -399,9 +767,128 @@ The hook automatically handles several things behind the scenes:
 - **Essential meta tags**: Ensures `<meta charset="UTF-8">` and `<meta name="viewport" content="width=device-width, initial-scale=1.0">` exist in the document head, creating them if missing.
 - **Change detection**: Uses JSON serialization to skip DOM updates when the configuration has not changed between renders.
 - **Element tracking**: All elements created by the hook are marked with a `data-use-seo` attribute for identification and cleanup.
-- **Image MIME type inference**: Automatically infers `og:image:type` from the image URL file extension (supports jpg, png, gif, webp, svg, ico, avif).
+- **Image MIME type inference**: Automatically infers `og:image:type` from the image URL file extension (supports jpg, png, gif, webp, svg, ico, avif, tiff, heic, heif, bmp, apng, jxl).
 - **Secure URL inference**: Automatically sets `og:image:secure_url` when the image URL starts with `https:`.
 - **Language normalization**: Validates and normalizes BCP 47 language tags using `Intl.getCanonicalLocales` when available.
+
+## Lifecycle / Cleanup
+
+The hook creates `<head>` elements during its main effect and, by default,
+**leaves them in place across component unmounts**. This is intentional: in
+single-page apps the meta tags should persist across route transitions to
+avoid flicker between pages, and the next instance of the hook will mutate
+them in place.
+
+When that default does not match what you want, the hook offers two opt-ins:
+
+### Option 1 — `clearOnUnmount: true` (declarative)
+
+Pass `clearOnUnmount: true` and the hook will clean up its own elements
+when the component unmounts. Pre-existing user-authored elements that the
+hook merely mutated are **not** removed — only elements that carry the
+`data-use-seo="true"` marker (i.e., elements the hook actually created)
+are taken down.
+
+```tsx
+function ShareModal() {
+  useSEO({
+    ogTitle: 'Share this content',
+    ogImage: 'https://example.com/share.jpg',
+    twitterCard: 'summary_large_image',
+    clearOnUnmount: true, // remove on unmount
+  });
+  return <div>...</div>;
+}
+```
+
+The latest value of `clearOnUnmount` wins: toggling it from `false` to
+`true` in a re-render before unmount will trigger cleanup; toggling it
+back to `false` will skip cleanup.
+
+### Option 2 — `clearSEOTags()` (imperative)
+
+The returned `clearSEOTags()` method does the same job at any moment of
+your choosing. Useful from a `useEffect` cleanup, an event handler, or
+inside an error boundary.
+
+```tsx
+function MyComponent() {
+  const { clearSEOTags } = useSEO({ title: 'Live View' });
+
+  useEffect(() => {
+    return () => clearSEOTags(); // explicit per-effect cleanup
+  }, [clearSEOTags]);
+
+  return <div>...</div>;
+}
+```
+
+### What is preserved
+
+Both code paths only remove elements that carry the `data-use-seo="true"`
+marker. If your application authored a `<meta name="description">` or
+`<link rel="canonical">` in the document `<head>` before the hook mounted
+(e.g., via Next.js metadata, a static HTML template, or a separate React
+tree), that element will be **preserved**. The hook may have mutated its
+attributes during its lifetime, but it will never delete it.
+
+## Performance Notes
+
+### How change detection works
+
+On every render the hook builds an internal config snapshot, serializes it
+with `JSON.stringify`, and compares the result to the previous render's
+serialization. When the strings match, the entire DOM-mutating block is
+skipped.
+
+### `JSON.stringify` is order-sensitive
+
+`JSON.stringify` walks an object's keys in **insertion order**. Two
+objects with the same data but a different key order produce different
+strings:
+
+```js
+JSON.stringify({ a: 1, b: 2 }); // '{"a":1,"b":2}'
+JSON.stringify({ b: 2, a: 1 }); // '{"b":2,"a":1}'
+```
+
+Inside the hook this means: passing a fresh props literal each render with
+the same data but **different key order** will be detected as "changed"
+and re-run the effect — a wasted no-op rather than a correctness bug, but
+worth avoiding on hot render paths.
+
+The same applies to nested objects (`ogImages: [{ url, alt, width }]` vs.
+`ogImages: [{ alt, url, width }]`) and to arrays whose ELEMENT order
+changes even when the SET of values is unchanged.
+
+### Recommendations
+
+1. **Stabilize the props object** with `useMemo` so the same reference is
+   reused across renders that don't actually change SEO data:
+
+   ```tsx
+   const seoProps = useMemo(
+     () => ({
+       title: page.title,
+       description: page.description,
+       canonical: page.canonical,
+       ogImages: page.images, // stable reference per `page` change
+     }),
+     [page]
+   );
+   useSEO(seoProps);
+   ```
+
+2. **Keep the key order stable** when you do build the props object inline.
+   Don't conditionally insert a key in different positions across renders.
+
+3. **Prefer top-level primitives** over nested objects when both work,
+   since primitive equality short-circuits faster than full object
+   serialization.
+
+4. The `enableWarnings`, `validateUrls`, and `preventDuplicates` options
+   are read on every render, so swapping them between renders is fine —
+   their cost is constant.
 
 ## Hook Return Methods
 
@@ -438,6 +925,8 @@ import type {
   SEOProps,
   SEOHookReturn,
   OpenGraphImage,
+  OpenGraphVideo,
+  OpenGraphAudio,
   HreflangLink,
   RobotsOptions,
   RobotsObject,
@@ -461,11 +950,18 @@ const images: OpenGraphImage[] = [
 
 ## SSR Considerations
 
-The hook is SSR-safe and will not throw errors during server-side rendering. However, it only manipulates the DOM on the client side. For server-side meta tag rendering, consider:
+The hook is SSR-safe — it never throws on the server, but it only mutates
+the DOM on the client. The general pattern is the same in every framework:
+let the framework render its initial meta tags on the server, and use
+`@hiprax/use-seo` from a client component for any dynamic updates after
+hydration.
 
 ### Next.js (App Router)
 
-Use Next.js's built-in metadata API for server-rendered meta tags, and use `@hiprax/use-seo` for client-side dynamic updates:
+Use Next.js's built-in metadata API for the server pass and a client
+component for dynamic updates. The `'use client'` directive must be the
+FIRST statement of the file — an unparenthesized string literal at the
+top, no leading whitespace.
 
 ```tsx
 // app/page.tsx
@@ -473,28 +969,30 @@ export const metadata = {
   title: 'Static Title',
   description: 'Static description',
 };
+```
 
-// For dynamic client-side updates, create a client component:
+```tsx
 // app/components/DynamicSection.tsx
-('use client');
+'use client';
+
 import { useSEO } from '@hiprax/use-seo';
 
-function DynamicSection({ dynamicTitle }: { dynamicTitle: string }) {
-  useSEO({
-    title: dynamicTitle,
-  });
+export function DynamicSection({ dynamicTitle }: { dynamicTitle: string }) {
+  useSEO({ title: dynamicTitle });
   return <div>Content</div>;
 }
 ```
 
 ### Next.js (Pages Router)
 
+Render the static tags inside `<Head>` and call `useSEO` from any child
+client component for the dynamic ones.
+
 ```tsx
 import Head from 'next/head';
 import { useSEO } from '@hiprax/use-seo';
 
 function Page() {
-  // For SSR
   return (
     <>
       <Head>
@@ -506,7 +1004,6 @@ function Page() {
 }
 
 function ClientSideComponent() {
-  // For client-side dynamic updates
   useSEO({ title: 'Dynamic Title' });
   return <div>Content</div>;
 }
@@ -624,9 +1121,47 @@ src/
     warnings.ts     # Development warning utilities
 ```
 
+## Coverage
+
+The package is exercised by a comprehensive Jest suite under `tests/`
+covering the public hook, every utility module, the package's `exports`
+manifest, SSR (`node` Jest environment) safety, and dozens of regression
+cases. As of v0.2.5 the suite ships **509 tests** and reports
+**98.65% statements, 95.34% branches, 100% functions, and 100% lines**;
+the exact numbers may vary slightly per release. To reproduce the report
+locally:
+
+```bash
+npm run test:coverage
+```
+
 ## Browser Support
 
-Supports all modern browsers and IE11+ (with appropriate polyfills).
+The hook targets **modern browsers** — anything that ships
+`Intl.getCanonicalLocales`, `URL`, `Set`, `Map`, and the standard ES2018
+language features the bundle is compiled to. Concretely, that means
+recent Chrome, Edge, Firefox, Safari (desktop and iOS), Samsung Internet,
+and Node 20.19+ for SSR (matching the package's `engines.node`). The build
+is published as both ESM and CommonJS so
+modern bundlers (Vite, Webpack 5, Rollup, esbuild, Next.js, Remix) can
+pick whichever suits their target.
+
+> **Note on `getCurrentSEO()`:** the snapshot returned by `getCurrentSEO()`
+> is a deep clone produced via `JSON.parse(JSON.stringify(...))`, so any
+> keys whose value is `undefined` are dropped from the result and the
+> schema must be JSON-clean (no `Date`, `Map`, `Set`, `BigInt`, functions,
+> or circular references). `SEOProps` is intentionally JSON-clean — it
+> exposes only primitives, strings, plain arrays, and plain objects — so
+> the result shape is uniform across every supported runtime.
+
+> **Internet Explorer is not a supported target.** IE11 lacks
+> `Intl.getCanonicalLocales`, has incomplete `URL`/`Set`/`Map` support,
+> and never received many of the language features the bundle relies on.
+> If you must support IE11, you would need polyfills for at least
+> `Intl.getCanonicalLocales`, `URL`, `Set`, `Map`, and a downlevel
+> compile pass — and even then several behaviors (e.g., the BCP 47
+> language-tag normalization) would degrade silently to the regex
+> fallback. We do not test against IE11 and consider it out of scope.
 
 ## Contributing
 
