@@ -20,6 +20,7 @@ import {
   main,
   readPkg,
   readChangelog,
+  escapeRegExp,
 } from './_lib.mjs';
 
 const HELP = `
@@ -99,7 +100,7 @@ main(async () => {
   const changelog = await readChangelog();
   if (changelog) {
     const re = new RegExp(
-      `^## \\[${pkg.version.replace(/\./g, '\\.')}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[)`,
+      `^## \\[${escapeRegExp(pkg.version)}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[)`,
       'm',
     );
     const m = re.exec(changelog);

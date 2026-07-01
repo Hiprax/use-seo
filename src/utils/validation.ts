@@ -248,10 +248,17 @@ export function inferImageMimeType(url: string): string | undefined {
 
   // Consider only the path segment: strip any query/hash first so an
   // extension embedded in a query value (e.g. `/render?file=photo.png`) on an
-  // extensionless path is NOT mistaken for the resource extension. Using
-  // `replace` (not `split(...)[0]`) keeps the result typed as `string`, with
-  // no `undefined` case to guard against under `noUncheckedIndexedAccess`.
-  const path = url.replace(/[?#].*$/, '');
+  // extensionless path is NOT mistaken for the resource extension.
+  //
+  // The pattern is `[?#][\s\S]*` (match everything from the first `?`/`#` to
+  // the end), NOT `[?#].*$`. The trailing `$` anchor in the old form forced
+  // super-linear backtracking on adversarial input such as a long run of `#`
+  // (each `#` is a fresh match start, and `.` cannot cross the trailing
+  // newline the `$` demands) — a polynomial-ReDoS footgun. `[\s\S]*` has no
+  // following token to fail against, so it consumes to the end in one pass
+  // with no backtracking. `replace` still returns a plain `string`, so there
+  // is no `undefined` case to guard under `noUncheckedIndexedAccess`.
+  const path = url.replace(/[?#][\s\S]*/, '');
   const pathMatch = path.match(/\.([a-z0-9]+)$/i);
   if (!pathMatch?.[1]) {
     return undefined;

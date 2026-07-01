@@ -174,6 +174,16 @@ export function bumpVersion(version, type) {
   }
 }
 
+// Escape every regular-expression metacharacter in a string so it can be
+// safely interpolated into a `new RegExp(...)` as a literal. Escapes the full
+// set `. * + ? ^ $ { } ( ) | [ ] \` — including the backslash itself, so a
+// value already containing a backslash cannot smuggle an escape sequence into
+// the constructed pattern. Partial escaping (e.g. only `.`) leaves other
+// metacharacters live and is an injection footgun.
+export function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Get today's date as YYYY-MM-DD (UTC).
 export function today() {
   const d = new Date();

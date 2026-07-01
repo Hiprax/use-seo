@@ -489,6 +489,36 @@ describe('inferImageMimeType', () => {
       'image/jpeg'
     );
   });
+
+  it('strips adversarial `#`/`?`-repetition input in linear time (ReDoS regression)', () => {
+    // Regression guard for the `js/polynomial-redos` finding. The old
+    // query/hash-stripping pattern `/[?#].*$/` backtracks QUADRATICALLY when a
+    // long run of `#`/`?` is followed by a NON-FINAL newline: `.` cannot cross
+    // the `\n`, and `$` (no `m` flag) only matches the true end of the string,
+    // so the engine retries `[?#]` at every one of the N run positions and each
+    // retry re-scans O(N) characters before failing -> O(N^2). The current
+    // `/[?#][\s\S]*/` has no trailing anchor, so the first `?`/`#` match
+    // consumes to the end in a single pass -> O(N).
+    //
+    // The trailing `\nx` below is LOAD-BEARING: without it, a pure `#` run
+    // matches even the OLD regex on the first character in one pass, so the
+    // test would pass on the vulnerable code too and guard nothing. With it,
+    // the old pattern runs for many seconds (and blows Jest's timeout) while
+    // the fix stays in single-digit milliseconds.
+    const N = 100_000;
+    const start = Date.now();
+    // Hash/query run + non-final newline: quadratic on the old pattern,
+    // constant on the fix. No `.ext` at the true end -> no MIME type.
+    expect(inferImageMimeType(`${'#'.repeat(N)}\nx`)).toBeUndefined();
+    expect(inferImageMimeType(`${'?'.repeat(N)}\nx`)).toBeUndefined();
+    // A bare run (no newline) strips to an empty path either way -> undefined.
+    expect(inferImageMimeType('#'.repeat(N))).toBeUndefined();
+    // A real path extension survives an appended adversarial run.
+    expect(
+      inferImageMimeType(`https://example.com/photo.png${'#'.repeat(N)}`)
+    ).toBe('image/png');
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
 });
 
 describe('normalizeCanonical edge cases', () => {
