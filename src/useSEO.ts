@@ -1211,6 +1211,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
 
       if (googlebot) {
         updateMetaInternal({ name: 'googlebot' }, googlebot);
+      } else {
+        // Parity with robots above: remove a previously hook-created googlebot
+        // meta when the effective googlebot directive disappears, so a stale
+        // crawler directive doesn't linger across renders. Only hook-created
+        // (data-use-seo="true") elements are removed; user-authored googlebot
+        // tags are preserved.
+        removeMarkedElements('meta[name="googlebot"]', addedElements.current);
       }
 
       // === Additional custom tags ===

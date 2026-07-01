@@ -489,6 +489,72 @@ describe('useSEO Hook', () => {
       );
       expect(markedRobots).toBeNull();
     });
+
+    it('removes hook-created googlebot meta when the directive disappears (robots retained)', () => {
+      const { rerender } = renderHook(
+        (
+          props: {
+            robots?: string | { index?: boolean; googlebot?: string };
+          } = {}
+        ) => useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { robots: { index: true, googlebot: 'noindex' } },
+        }
+      );
+
+      expect(getMetaContent('meta[name="googlebot"]')).toBe('noindex');
+
+      rerender({ robots: { index: true } });
+
+      // The marked googlebot meta should be removed from the DOM, mirroring
+      // the robots cleanup above, even though `robots` itself is still set.
+      const markedGooglebot = document.querySelector(
+        `meta[name="googlebot"][${SEO_MARKER}="true"]`
+      );
+      expect(markedGooglebot).toBeNull();
+    });
+
+    it('removes hook-created googlebot meta when robots is unset entirely', () => {
+      const { rerender } = renderHook(
+        (
+          props: {
+            robots?: string | { index?: boolean; googlebot?: string };
+          } = {}
+        ) => useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { robots: { googlebot: 'noindex' } },
+        }
+      );
+
+      expect(getMetaContent('meta[name="googlebot"]')).toBe('noindex');
+
+      rerender({ robots: undefined });
+
+      const markedGooglebot = document.querySelector(
+        `meta[name="googlebot"][${SEO_MARKER}="true"]`
+      );
+      expect(markedGooglebot).toBeNull();
+    });
+
+    it('preserves a user-authored googlebot meta when the hook has no googlebot directive', () => {
+      const userGooglebot = document.createElement('meta');
+      userGooglebot.setAttribute('name', 'googlebot');
+      userGooglebot.setAttribute('content', 'noindex');
+      document.head.appendChild(userGooglebot);
+
+      renderHook(() =>
+        useSEO({
+          robots: { index: true },
+          autoCanonical: false,
+          enableWarnings: false,
+        })
+      );
+
+      // The user-authored element must remain untouched: still in the DOM
+      // and never gains the hook's marker.
+      expect(document.head.contains(userGooglebot)).toBe(true);
+      expect(userGooglebot.getAttribute(SEO_MARKER)).toBeNull();
+    });
   });
 
   describe('Structured Data (JSON-LD)', () => {
