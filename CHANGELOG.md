@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Tooling
+
+- **Line-ending normalization infra (`.gitattributes` + `.editorconfig`)** — Added a root `.gitattributes` (`* text=auto eol=lf` catch-all, plus explicit `eol=lf` rules for `*.ts`/`*.tsx`/`*.js`/`*.cjs`/`*.mjs`/`*.json`/`*.md`/`*.yml`/`*.yaml`, and `binary` declarations for `*.png`/`*.jpg`/`*.ico`) and a root `.editorconfig` (`utf-8`, LF, 2-space indent, final newline, trailing-whitespace trim, with a `*.md` exception preserving trailing whitespace for Markdown hard breaks) matching `.prettierrc`'s existing `endOfLine: "lf"`. Without these, `core.autocrlf=true` on Windows checks the working tree out as CRLF, which fails `prettier --check` (and therefore `npm run format:check`, `npm run verify`, and `prepublishOnly`) for any Windows contributor even though every committed blob is already LF. The working tree was renormalized (`git add --renormalize .`, a content no-op since the index was already LF, followed by a forced re-checkout of every tracked file so the on-disk bytes actually match) — 16 previously CRLF-on-disk files are now LF (`.gitignore`, `.npmignore`, `.prettierrc`, `CHANGELOG.md`, `LICENSE`, `README.md`, `eslint.config.mjs`, `jest.config.js`, `package-lock.json`, `package.json`, `src/types.ts`, `src/useSEO.ts`, `tests/useSEO.test.tsx`, `tsconfig.eslint.json`, `tsconfig.json`, `tsup.config.ts`), verified byte-identical otherwise (no source, config, or lockfile content changed — only line-ending bytes). Both new files are excluded from the published npm tarball (`.npmignore` already listed them; reconfirmed with `npm pack --dry-run`). No `src/` behavior change — purely tooling and working-tree normalization. (`.gitattributes`, `.editorconfig`)
+
 ## [0.3.2] - 2026-07-01
 
 ### Fixed

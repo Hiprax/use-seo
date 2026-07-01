@@ -1,0 +1,18 @@
+# Normalize all text files to LF in the repository and working tree.
+* text=auto eol=lf
+
+# Explicit LF for the source/tooling file types (belt-and-suspenders).
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.cjs  text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Never touch binary blobs.
+*.png  binary
+*.jpg  binary
+*.ico  binary
