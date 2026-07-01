@@ -1,0 +1,477 @@
+# PLAN — @hiprax/use-seo hardening pass
+
+This plan fixes **7 genuine, adversarially-verified issues** found by a whole-system,
+non-linear review of `@hiprax/use-seo` (v0.3.2). Every finding below was confirmed by two
+independent reviewers tracing the real code paths (0 rejected). The codebase is otherwise
+in excellent shape — this plan touches only what is demonstrably wrong or a clear
+best-practice gap, ships dedicated tests for each change, and keeps everything backward
+compatible per project policy.
+
+Baseline at plan time: `npm run build` ✅, `npm test` ✅ (512 tests), `npm run typecheck` ✅,
+`npm run lint` ✅. `npm run format:check` ❌ **locally on Windows** (CRLF drift — Finding 7).
+All committed blobs are LF, so CI (Linux) is green; the local failure is fixed in Phase 1.
+
+---
+
+## Section 1 — MANDATORY EXECUTION PROTOCOL (read before every phase)
+
+Follow this protocol verbatim for **every task in every phase**:
+
+- **Back up before modifying (non-negotiable).** Before the first non-read-only operation on
+  an **existing** file, copy it to `<path>.tmp` (e.g. `src/useSEO.ts` → `src/useSEO.ts.tmp`).
+  Brand-new files need no backup. If a change proves wrong or a judge rejects it, restore from
+  the `.tmp` copy. After the task is validated, delete every `.tmp` you created. **Zero `.tmp`
+  files may remain**, and none may ever be staged/committed. Confirm they are gone before
+  declaring a task complete.
+- **Never stop to ask the operator or wait for confirmation.** There is no human available. If
+  anything is ambiguous, has multiple viable approaches, or looks wrong, summon **two new
+  independent judge agents (two `claude-sonnet-5`, max effort, read-only/sandboxed — no Edit/
+  Write/NotebookEdit)** to analyze it independently and return verdicts; act on the
+  best-reasoned verdict. Zero questions to the user.
+- **Read the referenced files before making any change.** Analyze **non-linearly**: trace each
+  definition to all call sites and each usage back to its definition; judge correctness from
+  the whole-system view.
+- **Do not blindly trust this plan.** Re-verify each step yourself first. If a step looks
+  wrong, summon two new independent judge agents (two `claude-sonnet-5`, max effort,
+  sandboxed) for a final verdict with reasoning before proceeding.
+- **Add tests** for the task (mirror the existing `tests/` structure and style).
+- **After implementing, run the relevant build/compile/test command** to verify the change.
+- **Always keep independent judges watching.** For every task, and for every agent you spawn,
+  summon **two new independent judge agents (two `claude-sonnet-5`, max effort, sandboxed)** to
+  validate the work in progress. Before marking any task complete, launch two fresh sandboxed
+  judges to validate the work and progress; only when both confirm do you proceed.
+- **Update the Task Summary Checklist** (tick each box you complete).
+- **Fix ANY issue, error, or warning you encounter** — even pre-existing, even not caused by
+  you. Do not check whether a problem is pre-existing; do not use git history/reverts to
+  sidestep it; just fix it. All tests must end **100% green, no errors, no warnings**.
+- **Work strictly in order; skip nothing; never pause between tasks.** Install packages,
+  create files, and modify files as needed (read existing files before editing them).
+- **ULTRATHINK.**
+
+After all tasks in a phase are done, run `npm run build` (and `npm test`) to confirm
+everything compiles and passes; fix any errors before finishing the phase.
+
+> Integration (git add/commit/push/tag/release) is handled **outside** this plan. No phase
+> performs any git or release operation. Version/CHANGELOG bookkeeping is plain file edits
+> only (Phase 8), never `npm version` (which would create a git tag).
+
+---
+
+## Verified findings (what we are fixing)
+
+| # | Severity | File | Summary |
+|---|----------|------|---------|
+| 1 | high→med | `src/useSEO.ts:511` | `clearSEOTags()` never resets `prevConfigRef`/`jsonLdScriptsRef`; re-rendering with unchanged props after a clear never re-applies tags — head stays empty. |
+| 2 | medium | `src/useSEO.ts:709` | `article:published_time`/`modified_time`/`expiration_time` linger after their props are removed (no cleanup else-branch), unlike the sibling `article:section`. |
+| 3 | low | `src/utils/validation.ts:250` | `inferImageMimeType` matches a dotted extension inside a **query string** of an extensionless URL → bogus `og:image:type`. |
+| 4 | medium | `src/utils/robots.ts:80` | Serializer emits Google-invalid `max-snippet:none` / `max-video-preview:none` (only `max-image-preview` accepts `none`; the others take an integer — `0` means "none"). |
+| 5 | med→low | `src/useSEO.ts:287` | Two live `useSEO` instances writing the same single-value tag: instance B tracks (and `clearSEOTags`-removes) an element instance A created (marker-based tracking can't tell ownership). |
+| 6 | low | `src/useSEO.ts:1104` | `twitter:player` (and `twitter:player:stream`) emitted for `http:` URLs though the type is documented "HTTPS-only" — no warning. |
+| 7 | medium | `.prettierrc` + repo root | No `.gitattributes`/`.editorconfig`; with `core.autocrlf=true` on Windows the working tree becomes CRLF and `format:check`/`verify`/`prepublishOnly` fail locally. |
+
+---
+
+## Phase 1 — Line-ending normalization infra (Finding 7)
+
+**Why:** `.prettierrc` pins `endOfLine: lf` but nothing enforces LF in git. On Windows with
+`core.autocrlf=true`, `src/types.ts`, `src/useSEO.ts`, and `tests/useSEO.test.tsx` check out
+as CRLF and fail `prettier --check`, breaking `npm run format:check`, `npm run verify`, and
+`prepublishOnly` for any Windows contributor. All committed blobs are already LF
+(`git ls-files --eol` → `i/lf` for all), so normalization rewrites **no** blobs. This phase
+runs first so every later phase edits LF files on a clean base.
+
+**Tasks:**
+1. **Create `.gitattributes`** at repo root:
+   ```gitattributes
+   # Normalize all text files to LF in the repository and working tree.
+   * text=auto eol=lf
+
+   # Explicit LF for the source/tooling file types (belt-and-suspenders).
+   *.ts   text eol=lf
+   *.tsx  text eol=lf
+   *.js   text eol=lf
+   *.cjs  text eol=lf
+   *.mjs  text eol=lf
+   *.json text eol=lf
+   *.md   text eol=lf
+   *.yml  text eol=lf
+   *.yaml text eol=lf
+
+   # Never touch binary blobs.
+   *.png  binary
+   *.jpg  binary
+   *.ico  binary
+   ```
+2. **Create `.editorconfig`** at repo root (editor-level consistency, matches `.prettierrc`):
+   ```editorconfig
+   root = true
+
+   [*]
+   charset = utf-8
+   end_of_line = lf
+   insert_final_newline = true
+   trim_trailing_whitespace = true
+   indent_style = space
+   indent_size = 2
+
+   [*.md]
+   trim_trailing_whitespace = false
+   ```
+3. **Renormalize + verify.** Run `git add --renormalize .` (content no-op — all blobs already
+   LF), then normalize the working-tree files: `npx prettier --write "src/**/*.{ts,tsx}"
+   "tests/**/*.{ts,tsx}"` (or re-checkout) so the three CRLF files become LF on disk. Confirm:
+   `npm run format:check` ✅, `npm run lint` ✅, `npm run typecheck` ✅, `npm test` ✅.
+   Confirm `.npmignore` already excludes `.gitattributes` and `.editorconfig` (it does —
+   verify; the published tarball is unaffected because `files` is `["dist","README.md","LICENSE"]`).
+   Add a `CHANGELOG.md` `[Unreleased]` note under a new **Tooling** subsection.
+
+**No `src/` behavior change.** Purely tooling + working-tree normalization.
+
+---
+
+## Phase 2 — `clearSEOTags()` state reset (Finding 1)
+
+**Why:** `clearSEOTags` (`src/useSEO.ts:511-522`) removes the DOM elements and clears
+`addedElements.current`, but leaves `prevConfigRef.current` and `jsonLdScriptsRef.current`
+stale. The main effect bails at `src/useSEO.ts:632-635` when `configJSON ===
+prevConfigRef.current`. So after `clearSEOTags()`, a re-render with an identically-serializing
+config skips the effect and the just-deleted tags are never recreated — the head stays empty
+until a prop actually changes. The unmount-cleanup effect already resets
+`jsonLdScriptsRef.current.clear()` at `src/useSEO.ts:1571`, confirming the reset is intended
+on teardown; it is simply missing from `clearSEOTags`.
+
+**Tasks:**
+1. In `clearSEOTags` (`src/useSEO.ts:511-522`), after `addedElements.current.clear()`, add:
+   ```ts
+   // Invalidate change-detection + JSON-LD reconciliation state so the next
+   // effect run re-applies every tag from scratch. Without this, a re-render
+   // with an unchanged config would hit the early-return in the main effect
+   // and never recreate the tags we just removed. Mirrors the unmount-cleanup
+   // effect below.
+   prevConfigRef.current = '';
+   jsonLdScriptsRef.current.clear();
+   ```
+   (`prevConfigRef` is the load-bearing reset; `jsonLdScriptsRef.clear()` mirrors the unmount
+   effect and keeps the two teardown paths symmetric.)
+2. **Tests** in `tests/useSEO.test.tsx` (Hook Return Methods): render with
+   `{ title, description, structuredData }`; assert tags present; `act(clearSEOTags())`; assert
+   removed; **rerender with the identical props (a fresh object with the same values)** and
+   assert `meta[name="description"]`, an OG tag, and the `script[type="application/ld+json"]`
+   are all restored. Add a same-reference variant too.
+3. Update the `clearSEOTags` JSDoc to note it resets change-detection state so a subsequent
+   render re-applies tags. Add a `CHANGELOG.md` `[Unreleased]` **Fixed** entry (file paths).
+
+---
+
+## Phase 3 — Article-date cleanup consistency (Finding 2)
+
+**Why:** `article:published_time`/`article:modified_time`/`article:expiration_time`
+(`src/useSEO.ts:709-723`) are emitted with bare `if` blocks and **no** cleanup, while the
+sibling single-value tag `article:section` (`src/useSEO.ts:1031-1039`) has an
+`else { removeMarkedElements('meta[property="article:section"]', addedElements.current); }`.
+All three date props are in the change snapshot (`:576-578`) and deps array (`:1470-1472`), so
+the effect re-runs when they drop — the tags just never get torn down. An SPA nav from an
+article to a non-article page (same hook instance) leaves stale `article:*` dates in the DOM
+for crawlers/scrapers. The cleanup-policy comment (`:1441-1460`) lists `article:section` as
+cleaned-up but never places the dates in either bucket → oversight, not intent.
+
+**Tasks:**
+1. In `src/useSEO.ts`, give each of the three date branches an `else` mirroring
+   `article:section`:
+   ```ts
+   if (publishedTime) {
+     updateMetaInternal({ property: 'article:published_time' }, publishedTime);
+   } else {
+     removeMarkedElements('meta[property="article:published_time"]', addedElements.current);
+   }
+   if (modifiedTime) {
+     updateMetaInternal({ property: 'article:modified_time' }, modifiedTime);
+   } else {
+     removeMarkedElements('meta[property="article:modified_time"]', addedElements.current);
+   }
+   if (expirationTime) {
+     updateMetaInternal({ property: 'article:expiration_time' }, expirationTime);
+   } else {
+     removeMarkedElements('meta[property="article:expiration_time"]', addedElements.current);
+   }
+   ```
+   Only hook-created (`data-use-seo="true"`) elements are removed; user-authored ones are
+   preserved.
+2. **Tests** (Article Dates block): for each of the three tags, render with the date set (via
+   `renderHook` rerender), assert present, rerender with the prop unset, assert the marked
+   meta is removed — mirroring the existing `article:section` cleanup test. Also assert a
+   user-authored `article:published_time` (no marker) survives.
+3. Update the cleanup-policy comment (`src/useSEO.ts:1441-1460`) to list the article dates
+   among the cleaned-up single-value tags. Update the README "Article Extensions"/"Article
+   Metadata" cleanup note. Add a `CHANGELOG.md` `[Unreleased]` **Fixed** entry.
+
+---
+
+## Phase 4 — `inferImageMimeType` query-string fix (Finding 3)
+
+**Why:** The regex `/\.([a-z0-9]+)(?:[?#].*)?$/i` (`src/utils/validation.ts:250`) makes the
+query/hash group optional, so with the `$` anchor it backtracks to the last `.ext` **anywhere**
+before end-of-string — including inside a query string. `inferImageMimeType(
+'https://img.example.com/render?w=100&file=photo.png')` returns `'image/png'` for an
+extensionless path. Called at `src/useSEO.ts:836` and `:866` to fill `og:image:type`, so a
+user passing such a URL with no explicit `type` gets a fabricated `<meta property=
+"og:image:type" content="image/png">`.
+
+**Tasks:**
+1. In `src/utils/validation.ts`, strip the query/hash **before** extracting the extension so
+   only the path is considered:
+   ```ts
+   // Consider only the path segment — strip any query/hash first so an
+   // extension embedded in a query value (e.g. `/render?file=photo.png`) on an
+   // extensionless path is NOT mistaken for the resource extension.
+   const path = url.split(/[?#]/, 1)[0] ?? url;
+   const pathMatch = path.match(/\.([a-z0-9]+)$/i);
+   if (!pathMatch?.[1]) {
+     return undefined;
+   }
+   ```
+   (Keep the rest of the function unchanged. `noUncheckedIndexedAccess` is on, hence the
+   `?? url` guard on the split result.)
+2. **Tests** in `tests/utils/validation.test.ts` (inferImageMimeType): assert
+   `'.../render?w=100&file=photo.png'` → `undefined`; `'.../dynamic-image?ratio=1.5'` →
+   `undefined`; and confirm the existing path-extension-with-query cases (e.g.
+   `'https://example.com/image.png?v=2'`, `'.../image.jpg#frag'`) still resolve correctly.
+3. Add a `CHANGELOG.md` `[Unreleased]` **Fixed** entry (file paths).
+
+---
+
+## Phase 5 — Robots `max-snippet` / `max-video-preview` `'none'` spec fix (Finding 4)
+
+**Why:** Per Google's robots-meta-tag spec, `max-snippet` and `max-video-preview` accept only
+an integer (`0` = "none", `-1` = "let Google choose"); only `max-image-preview` accepts the
+literal `none`. `robotsObjectToString` (`src/utils/robots.ts:80-90`) interpolates the value
+verbatim, so `{ maxSnippet: 'none' }` emits the invalid `max-snippet:none` and
+`{ maxVideoPreview: 'none' }` emits `max-video-preview:none`; Google ignores an unparseable
+directive, silently defeating the author's intent. The type unions include `'none'`
+(`src/types.ts:240,254`) and existing tests lock in the wrong output.
+
+**Tasks:**
+1. In `robotsObjectToString` (`src/utils/robots.ts`), map `'none'` → `0` (the spec-correct
+   "no snippet" / "static image only") for these two fields, keeping backward-compat with
+   callers who pass `'none'`:
+   ```ts
+   if (opt.maxSnippet !== undefined) {
+     // Google: max-snippet takes an integer; `0` means "no snippet". The
+     // legacy `'none'` value maps to `0` (emitting `max-snippet:none` is
+     // invalid and Google would ignore it).
+     const v = opt.maxSnippet === 'none' ? 0 : opt.maxSnippet;
+     parts.push(`max-snippet:${v}`);
+   }
+   // ...
+   if (opt.maxVideoPreview !== undefined) {
+     // Google: max-video-preview takes an integer; `0` means "static image
+     // only" (no video preview). Legacy `'none'` maps to `0`.
+     const v = opt.maxVideoPreview === 'none' ? 0 : opt.maxVideoPreview;
+     parts.push(`max-video-preview:${v}`);
+   }
+   ```
+   Leave `maxImagePreview` unchanged (it legitimately accepts `none`/`standard`/`large`).
+2. Update `src/types.ts` JSDoc for `maxSnippet` and `maxVideoPreview`: document that `'none'`
+   is accepted for backward-compat and serializes to the spec-correct `:0`. Update the
+   **existing** robots tests that assert `max-snippet:none` / `max-video-preview:none`
+   (`tests/utils/robots.test.ts:53-56,201-204,283-287,305-312`) to expect `:0`, and add
+   explicit new tests for the `'none' → :0` mapping (top-level and `googlebot`).
+3. Update the README "Robots Directives" note if it implies `none` is valid for these fields.
+   Add a `CHANGELOG.md` `[Unreleased]` **Fixed** entry (file paths).
+
+---
+
+## Phase 6 — Two-instance shared-tag ownership (Finding 5)
+
+**Why:** `updateMetaInternal` (`src/useSEO.ts:276-289`) / `updateLinkInternal`
+(`:402-425`) track the returned element in `addedElements.current` whenever it carries the
+SEO marker. `getOrCreateMeta`/`getOrCreateLink` return an **existing** marked element created
+by **another** instance. So instance B, writing the same single-value tag, adopts instance A's
+element into B's tracking Set; B's `clearSEOTags()` (or B unmounting with
+`clearOnUnmount: true`) then deletes A's element, and A cannot recover (its `prevConfigRef` is
+unchanged). Trigger is non-default (two live instances on the same tag + one opting into
+removal), hence low-medium — but it is a genuine ownership defect that contradicts the
+"avoids interfering with other components' tags" design note.
+
+**Primary approach (preferred):** Track **only elements this instance actually created**, not
+pre-existing marked ones.
+- In `src/utils/dom.ts`, make `getOrCreateMeta` and `getOrCreateLink` add the **newly created**
+  element to the passed `trackedElements` set on their create path (they already receive the
+  set for dedup removal). Reused/adopted elements are not added.
+- In `src/useSEO.ts`, drop the marker-based `addedElements.current.add(...)` in
+  `updateMetaInternal`/`updateLinkInternal` (tracking is now owned by the create path).
+- Same-instance re-render is unaffected (the element was added on its creation render and stays
+  in the Set); cross-instance adoption no longer happens.
+
+**Tasks:**
+1. Implement the primary approach. Re-read `getOrCreateMeta`/`getOrCreateLink`/`createMeta`,
+   `ensureEssentialMeta`, and every call site; trace the multi-value (`createMeta`) and
+   essential-meta paths (unaffected — they add directly). Update the JSDoc of the two helpers
+   to document the "adds newly-created elements to `trackedElements`" contract. If two
+   sandboxed judges find this fix regressive against the existing tracking tests, fall back to
+   the **documentation-only** approach: document in README + `clearSEOTags`/`clearOnUnmount`
+   JSDoc that shared single-value tags are last-writer-owned and cleanup may remove a tag a
+   sibling live instance depends on — and record the judges' reasoning.
+2. **Tests**: (a) a two-instance test — instance A `{ description:'A' }`, instance B
+   `{ description:'B' }`, then B `clearSEOTags()` must **not** remove A's still-needed
+   `meta[name="description"]`; (b) same for a shared `link` (e.g. `canonical`); (c) adjust
+   `tests/utils/dom.test.ts` for the new create-path tracking behavior; (d) re-confirm the
+   existing single-instance tracking/`clearSEOTags` tests still pass unchanged.
+3. Add a `CHANGELOG.md` `[Unreleased]` **Fixed** entry (file paths); note the chosen approach.
+
+---
+
+## Phase 7 — `twitter:player` HTTPS dev-warning (Finding 6)
+
+**Why:** `twitter:player` emission (`src/useSEO.ts:1104`) gates only on generic URL validity,
+so `http://…` player URLs pass through even though the type JSDoc (`src/types.ts:943`) says
+"HTTPS-only" and X rejects non-HTTPS player URLs. Consistent with the library's
+**warn-don't-block** philosophy (it already warns rather than silently altering values), the
+fix is a **dev-mode warning** — not a skip (skipping would be inconsistent with how `og:url`/
+`og:image` emit `http:` values).
+
+**Tasks:**
+1. In `src/useSEO.ts`, when `twitterPlayer` (and `twitterPlayerStream`) is emitted and the
+   value does not start with `https:`, call `warn(...)` (e.g. `twitter:player should be an
+   HTTPS URL; X rejects non-HTTPS player URLs`) guarded by `enableWarnings`. Still emit the
+   tag (no behavior change to the DOM output). Do **not** change the skip logic.
+2. **Tests** (Twitter Player block): with `NODE_ENV=development`, `enableWarnings: true`, and
+   an `http:` `twitterPlayer`, assert the warning fires and the tag is still emitted; with an
+   `https:` value assert no such warning. Mirror for `twitterPlayerStream`.
+3. Update the README "Twitter Player Card" section to state the URLs must be HTTPS (a dev
+   warning fires otherwise). Add a `CHANGELOG.md` `[Unreleased]` entry (file paths).
+
+---
+
+## Phase 8 — Finalize (gates, docs, version)
+
+**Tasks:**
+1. Run the full gate set and make everything green with **no warnings**:
+   `npm run build`, `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test`
+   (and `npm run check-types-pack` if the tarball shape could be affected — it should not be).
+   Fix anything that fails, even if pre-existing. Confirm **no `.tmp` files** remain anywhere
+   (`git status` clean of `*.tmp`).
+2. Refresh the README **Coverage** section: run `npm run test:coverage`, update the
+   "As of v0.3.2 … 512 tests … 98.65%/95.36%/100%/100%" stamp to the new version and the
+   freshly-derived test count and coverage figures.
+3. Promote the `CHANGELOG.md` `[Unreleased]` section to a dated version heading and bump
+   `package.json#version` to **0.3.3** (patch — all changes are backward-compatible bug/spec
+   fixes and tooling; escalate to **0.4.0** only if the sandboxed judges deem the robots-`none`
+   or two-instance change breaking). Edit `package.json` directly — **do not** run `npm version`
+   (it creates a git tag; integration is external). Re-run all gates once more; end 100% green.
+
+---
+
+## Task Summary Checklist
+
+### Phase 1 — Line-ending infra
+- [x] 1.1 Create `.gitattributes` (`* text=auto eol=lf` + explicit source types + binaries)
+- [x] 1.2 Create `.editorconfig` (LF, utf-8, final newline, 2-space)
+- [x] 1.3 `git add --renormalize .` + `prettier --write`; verify all 4 gates green; confirm `.npmignore` excludes both; CHANGELOG Tooling note
+
+### Phase 2 — clearSEOTags state reset
+- [x] 2.1 Reset `prevConfigRef.current=''` and `jsonLdScriptsRef.current.clear()` in `clearSEOTags`
+- [x] 2.2 Regression tests: clear → rerender identical props restores meta + OG + JSON-LD
+- [x] 2.3 Update `clearSEOTags` JSDoc; CHANGELOG Fixed entry
+
+### Phase 3 — Article-date cleanup consistency
+- [x] 3.1 Add `else`/`removeMarkedElements` for `article:published_time`/`modified_time`/`expiration_time`
+- [x] 3.2 Tests: removal on unset for each; user-authored survives
+- [x] 3.3 Update cleanup-policy comment + README; CHANGELOG Fixed entry
+
+### Phase 4 — inferImageMimeType query-string fix
+- [x] 4.1 Strip query/hash before extension match in `inferImageMimeType`
+- [x] 4.2 Tests: dotted query on extensionless path → undefined; path-ext-with-query still works
+- [x] 4.3 CHANGELOG Fixed entry
+
+### Phase 5 — Robots `none` spec fix
+- [x] 5.1 Map `'none'`→`0` for `maxSnippet` and `maxVideoPreview` in `robotsObjectToString`
+- [x] 5.2 Update JSDoc; update existing `:none` tests to `:0`; add mapping tests (incl. googlebot)
+- [x] 5.3 Update README robots note; CHANGELOG Fixed entry
+
+### Phase 6 — Two-instance shared-tag ownership
+- [ ] 6.1 Track only self-created elements (create-path tracking in `getOrCreate*`; drop marker-add) — judge-gated, with doc-only fallback
+- [ ] 6.2 Two-instance tests (meta + link); adjust `dom.test.ts`; re-confirm single-instance tests
+- [ ] 6.3 CHANGELOG Fixed entry (note chosen approach)
+
+### Phase 7 — twitter:player HTTPS dev-warning
+- [ ] 7.1 Warn (not skip) when `twitterPlayer`/`twitterPlayerStream` is not `https:`
+- [ ] 7.2 Tests: warning on http, none on https, tag still emitted
+- [ ] 7.3 Update README; CHANGELOG entry
+
+### Phase 8 — Finalize
+- [ ] 8.1 All gates green, no warnings; zero `.tmp` leftovers
+- [ ] 8.2 Refresh README Coverage stamp from fresh `test:coverage`
+- [ ] 8.3 Promote CHANGELOG to dated version; bump `package.json` to 0.3.3 (file edit only); re-run gates
+
+---
+
+## Phase Prompts (copy-paste, self-contained)
+
+**Phase 1**
+> Open `PLAN.md`, re-read Section 1 (Mandatory Execution Protocol), then execute **Phase 1 —
+> Line-ending normalization infra**. Add `.gitattributes` and `.editorconfig` per the plan,
+> run `git add --renormalize .` and `prettier --write` so the working tree is LF, and confirm
+> `npm run build`, `npm test`, `npm run lint`, `npm run typecheck`, and `npm run format:check`
+> all pass. Confirm `.npmignore` excludes both new files. Back up any existing file before
+> editing (`.tmp`), keep two sandboxed `claude-sonnet-5` judges validating, add the CHANGELOG
+> Tooling note, tick the checklist, and remove every `.tmp`. ULTRATHINK.
+
+**Phase 2**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 2 — `clearSEOTags()` state reset**.
+> Back up `src/useSEO.ts` and `tests/useSEO.test.tsx` (`.tmp`) first. Reset `prevConfigRef` and
+> `jsonLdScriptsRef` inside `clearSEOTags`, add the clear-then-rerender regression tests,
+> update the JSDoc and CHANGELOG. Re-verify the code paths yourself, keep two sandboxed
+> `claude-sonnet-5` judges validating the work before completion, run `npm test`/`npm run
+> build`, tick the checklist, and delete every `.tmp`. ULTRATHINK.
+
+**Phase 3**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 3 — Article-date cleanup
+> consistency**. Back up the files you touch (`.tmp`) first. Add the `else`/`removeMarkedElements`
+> cleanup for `article:published_time`/`modified_time`/`expiration_time` mirroring
+> `article:section`, add removal-on-unset tests plus a user-authored-survives test, update the
+> cleanup-policy comment, README, and CHANGELOG. Keep two sandboxed `claude-sonnet-5` judges
+> validating, run the tests/build, tick the checklist, and remove every `.tmp`. ULTRATHINK.
+
+**Phase 4**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 4 — `inferImageMimeType`
+> query-string fix**. Back up `src/utils/validation.ts` and `tests/utils/validation.test.ts`
+> (`.tmp`) first. Strip the query/hash before extracting the extension, add the regression
+> tests (dotted query on extensionless path → undefined; path-extension-with-query still
+> works), and update the CHANGELOG. Keep two sandboxed `claude-sonnet-5` judges validating,
+> run the tests/build, tick the checklist, and delete every `.tmp`. ULTRATHINK.
+
+**Phase 5**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 5 — Robots `none` spec fix**. Back up
+> the files you touch (`.tmp`) first. Map `'none'`→`0` for `maxSnippet` and `maxVideoPreview`
+> in `robotsObjectToString` (leave `maxImagePreview` alone), update the type JSDoc, correct the
+> existing `:none` tests to `:0`, add mapping tests (including `googlebot`), update the README
+> robots note, and add the CHANGELOG entry. Keep two sandboxed `claude-sonnet-5` judges
+> validating, run the tests/build, tick the checklist, and remove every `.tmp`. ULTRATHINK.
+
+**Phase 6**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 6 — Two-instance shared-tag
+> ownership**. Back up the files you touch (`.tmp`) first. Implement the primary approach
+> (track only self-created elements via the `getOrCreate*` create path; drop the marker-based
+> add in `updateMetaInternal`/`updateLinkInternal`); if two sandboxed `claude-sonnet-5` judges
+> find it regressive, adopt the documented last-writer-owned fallback and record their
+> reasoning. Add two-instance tests (meta + link), adjust `dom.test.ts`, re-confirm the
+> single-instance tests, and update the CHANGELOG. Keep judges validating, run the tests/build,
+> tick the checklist, and delete every `.tmp`. ULTRATHINK.
+
+**Phase 7**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 7 — `twitter:player` HTTPS
+> dev-warning**. Back up `src/useSEO.ts`, `tests/useSEO.test.tsx`, and `README.md` (`.tmp`)
+> first. Add a dev-mode `warn(...)` (never a skip) when `twitterPlayer`/`twitterPlayerStream`
+> is not `https:`, add the warning tests, update the README and CHANGELOG. Keep two sandboxed
+> `claude-sonnet-5` judges validating, run the tests/build, tick the checklist, and remove
+> every `.tmp`. ULTRATHINK.
+
+**Phase 8**
+> Open `PLAN.md`, re-read Section 1, then execute **Phase 8 — Finalize**. Back up `README.md`,
+> `CHANGELOG.md`, and `package.json` (`.tmp`) first. Run every quality gate green with no
+> warnings, refresh the README Coverage stamp from a fresh `npm run test:coverage`, promote the
+> CHANGELOG `[Unreleased]` section to a dated `0.3.3` heading, and bump `package.json#version`
+> to `0.3.3` by direct file edit (never `npm version`). Confirm zero `.tmp` files remain
+> anywhere. Keep two sandboxed `claude-sonnet-5` judges validating the final state, tick the
+> checklist, and remove every `.tmp`. ULTRATHINK.

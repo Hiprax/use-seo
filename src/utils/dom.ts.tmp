@@ -107,19 +107,11 @@ export function createMeta(key: MetaKey): HTMLMetaElement {
  * @param key - The meta tag identifier (name, property, or httpEquiv)
  * @param preventDuplicates - Whether to remove duplicate meta tags
  * @param trackedElements - Optional `Set<Element>` that the caller uses to
- *   track elements it OWNS for later cleanup (e.g. `clearSEOTags`). Two
- *   things happen with it:
- *   1. Ownership: when this call creates a brand-new element (no existing
- *      match), that element is `add()`ed to the Set. An existing element
- *      returned via the reuse path is deliberately NOT added, even if it
- *      carries the SEO marker — it may have been created by a different
- *      `useSEO` instance sharing the same document, and adopting it into
- *      this instance's Set would let this instance's cleanup delete an
- *      element another instance still depends on.
- *   2. Dedup cleanup: any duplicate element removed by the dedup loop is
- *      `delete()`d from the Set so detached references don't linger and
- *      prevent garbage collection.
- *   Backwards-compatible: omit to keep the previous behavior (no tracking).
+ *   track elements created by `useSEO`. When provided, any duplicate
+ *   element removed by the dedup loop is also `delete()`d from the Set so
+ *   detached references don't linger and prevent garbage collection.
+ *   Backwards-compatible: omit to keep the previous behavior (DOM-only
+ *   removal).
  * @returns The meta element (existing or newly created), or `null` if no
  *   key was provided
  *
@@ -181,11 +173,6 @@ export function getOrCreateMeta(
     }
     meta.setAttribute(SEO_MARKER, 'true');
     document.head.appendChild(meta);
-    // Ownership is decided HERE, not by the caller inspecting the marker:
-    // only an element this call actually created is added to the Set. A
-    // reused element (returned above) is skipped even when it carries the
-    // marker, since it may be owned by a different `useSEO` instance.
-    trackedElements?.add(meta);
   }
 
   return meta;
@@ -199,19 +186,11 @@ export function getOrCreateMeta(
  * @param unique - If true, ensures only one link with this rel exists
  * @param keySelector - Additional selector to identify specific links (e.g., '[hreflang="en"]')
  * @param trackedElements - Optional `Set<Element>` that the caller uses to
- *   track elements it OWNS for later cleanup (e.g. `clearSEOTags`). Two
- *   things happen with it:
- *   1. Ownership: when this call creates a brand-new element (no existing
- *      match), that element is `add()`ed to the Set. An existing element
- *      returned via the reuse path is deliberately NOT added, even if it
- *      carries the SEO marker — it may have been created by a different
- *      `useSEO` instance sharing the same document, and adopting it into
- *      this instance's Set would let this instance's cleanup delete an
- *      element another instance still depends on.
- *   2. Dedup cleanup: when the unique constraint removes duplicate
- *      elements, those duplicates are also `delete()`d from the Set so
- *      detached references don't linger and prevent garbage collection.
- *   Backwards-compatible: omit to keep the previous behavior (no tracking).
+ *   track elements created by `useSEO`. When provided AND the unique
+ *   constraint removes duplicate elements, those duplicates are also
+ *   `delete()`d from the Set so detached references don't linger and
+ *   prevent garbage collection. Backwards-compatible: omit to keep the
+ *   previous behavior (DOM-only removal).
  * @returns The link element (existing or newly created)
  *
  * @example
@@ -263,11 +242,6 @@ export function getOrCreateLink(
     link.setAttribute('rel', rel);
     link.setAttribute(SEO_MARKER, 'true');
     document.head.appendChild(link);
-    // Ownership is decided HERE, not by the caller inspecting the marker:
-    // only an element this call actually created is added to the Set. A
-    // reused element (returned above) is skipped even when it carries the
-    // marker, since it may be owned by a different `useSEO` instance.
-    trackedElements?.add(link);
   }
 
   return link;

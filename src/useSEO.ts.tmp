@@ -273,16 +273,6 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // overwriting an unrelated meta element.
       if (!key.name && !key.property && !key.httpEquiv) return;
 
-      // Ownership tracking now happens INSIDE `getOrCreateMeta`, on its
-      // create path only: it adds a brand-new element to `addedElements`
-      // but skips a reused one. That distinction matters across multiple
-      // live `useSEO` instances sharing one document — a marker-based check
-      // here (`meta.getAttribute(SEO_MARKER) === 'true'`) can't tell "I
-      // created this" from "some OTHER instance created this and I'm just
-      // mutating it", so it used to adopt other instances' elements into
-      // this instance's Set. Adopting them meant this instance's
-      // `clearSEOTags`/`clearOnUnmount` could delete an element a sibling
-      // instance still depended on.
       const meta = getOrCreateMeta(
         key,
         preventDuplicates,
@@ -290,6 +280,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       );
       if (!meta) return;
       meta.setAttribute('content', content);
+      // Only track elements that the hook actually CREATED (carry the SEO
+      // marker). Pre-existing user-authored elements that we merely mutate
+      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
+      // them — that's data loss.
+      if (meta.getAttribute(SEO_MARKER) === 'true') {
+        addedElements.current.add(meta);
+      }
     },
     [preventDuplicates]
   );
@@ -402,10 +399,6 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         return;
       }
 
-      // See the matching comment in `updateMetaInternal`: ownership tracking
-      // now happens INSIDE `getOrCreateLink`'s create path, so a reused
-      // element created by a different `useSEO` instance is never adopted
-      // into this instance's `addedElements` Set.
       const link = getOrCreateLink(
         rel,
         unique,
@@ -422,6 +415,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       if (attrs.as) link.setAttribute('as', attrs.as);
       if (attrs.crossOrigin)
         link.setAttribute('crossorigin', attrs.crossOrigin);
+
+      // Only track elements that the hook actually CREATED (carry the SEO
+      // marker). Pre-existing user-authored elements that we merely mutate
+      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
+      // them — that's data loss.
+      if (link.getAttribute(SEO_MARKER) === 'true') {
+        addedElements.current.add(link);
+      }
     },
     [validateUrls, enableWarnings]
   );
