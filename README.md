@@ -1155,8 +1155,8 @@ src/
 The package is exercised by a comprehensive Jest suite under `tests/`
 covering the public hook, every utility module, the package's `exports`
 manifest, SSR (`node` Jest environment) safety, and dozens of regression
-cases. As of v0.3.2 the suite ships **512 tests** and reports
-**98.65% statements, 95.36% branches, 100% functions, and 100% lines**;
+cases. As of v0.3.3 the suite ships **538 tests** and reports
+**98.67% statements, 95.33% branches, 100% functions, and 100% lines**;
 the exact numbers may vary slightly per release. To reproduce the report
 locally:
 
