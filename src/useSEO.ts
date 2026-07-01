@@ -992,10 +992,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         }
       }
 
-      // === Article-specific Open Graph (when ogType === 'article') ===
-      // Multi-value tags (article:author, article:tag) follow the same
-      // cleanup-then-recreate pattern as OG image/locale alternates so a
-      // re-render with the prop unset removes stale tags.
+      // === Article-specific Open Graph (independent of `ogType`) ===
+      // These fields are emitted whenever the corresponding prop is
+      // provided; we intentionally do NOT gate them on `ogType === 'article'`
+      // (setting it is recommended for spec-conformant consumers/validators,
+      // but not required). Multi-value tags (article:author, article:tag)
+      // follow the same cleanup-then-recreate pattern as OG image/locale
+      // alternates so a re-render with the prop unset removes stale tags.
       removeMarkedElements(
         'meta[property="article:author"]',
         addedElements.current
@@ -1435,11 +1438,26 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       logError('Error updating head tags', error);
     }
 
-    // Intentionally no cleanup on prop change: meta/link tags persist across
-    // re-renders to avoid flicker during SPA navigation. The dedicated
-    // unmount-cleanup effect below handles the optional `clearOnUnmount`
-    // path; outside of that, callers can still invoke the returned
-    // `clearSEOTags()` method explicitly whenever they need to.
+    // Cleanup policy (see the per-tag `removeMarkedElements` calls above):
+    // - Multi-value tags (og:image*, og:video*, og:audio*,
+    //   og:locale:alternate, article:author, article:tag, hreflang) are
+    //   removed then recreated on every render, since `createMeta` always
+    //   appends — without the up-front removal, an unset-then-reset prop
+    //   would accumulate duplicate elements.
+    // - Single-value tags whose effective value can collapse to absent
+    //   between renders — either because they're computed from a fallback
+    //   chain (og:url, twitter:image, robots) or because a stale directive
+    //   would mislead crawlers/social scrapers (og:locale, article:section,
+    //   twitter:player and its width/height/stream/stream:content_type
+    //   sub-fields, googlebot) — are cleaned up via `removeMarkedElements`
+    //   when that render's effective value is absent.
+    // - Primary content that mirrors document-global state (title, language)
+    //   and plain descriptive scalars (e.g. description, og:site_name,
+    //   twitter:creator/site/image:alt, and the OG/Twitter title/description
+    //   that fall back to title/description) are intentionally LEFT IN
+    //   PLACE across re-renders to avoid flicker during SPA navigation;
+    //   callers opt into removal via `clearOnUnmount` or the returned
+    //   `clearSEOTags()` method explicitly whenever they need to.
   }, [
     // Basic SEO
     title,
