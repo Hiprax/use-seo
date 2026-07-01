@@ -462,6 +462,24 @@ describe('inferImageMimeType', () => {
       'image/tiff'
     );
   });
+
+  it('ignores a dotted extension embedded in the query string of an extensionless path', () => {
+    expect(
+      inferImageMimeType('https://img.example.com/render?w=100&file=photo.png')
+    ).toBeUndefined();
+    expect(
+      inferImageMimeType('https://example.com/dynamic-image?ratio=1.5')
+    ).toBeUndefined();
+  });
+
+  it('still infers the extension when the path itself has one, query string notwithstanding', () => {
+    expect(inferImageMimeType('https://example.com/image.png?v=2')).toBe(
+      'image/png'
+    );
+    expect(inferImageMimeType('https://example.com/image.jpg#frag')).toBe(
+      'image/jpeg'
+    );
+  });
 });
 
 describe('normalizeCanonical edge cases', () => {
