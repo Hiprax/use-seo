@@ -792,6 +792,133 @@ describe('useSEO Hook', () => {
       expect(markedOgTitle).toBeNull();
     });
 
+    it('restores meta, OG, and JSON-LD tags on rerender with identical (but fresh) props after clearSEOTags', () => {
+      const { result, rerender } = renderHook(
+        (props: {
+          title?: string;
+          description?: string;
+          structuredData?: object;
+        }) => useSEO(props),
+        {
+          initialProps: {
+            title: 'Test',
+            description: 'Description',
+            structuredData: {
+              '@context': 'https://schema.org',
+              '@type': 'Article',
+              headline: 'Regression Article',
+            },
+          },
+        }
+      );
+
+      // Sanity: everything present before clearing.
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).not.toBeNull();
+
+      act(() => {
+        result.current.clearSEOTags();
+      });
+
+      // Confirm the clear actually removed everything hook-created — the
+      // restoration assertions below would be meaningless otherwise.
+      expect(
+        document.querySelector(`meta[name="description"][${SEO_MARKER}="true"]`)
+      ).toBeNull();
+      expect(
+        document.querySelector(
+          `meta[property="og:title"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).toBeNull();
+
+      // Rerender with a FRESH object literal carrying identical values — the
+      // serialized config is byte-identical to what was last applied, which
+      // is exactly the scenario that used to hit the main effect's
+      // early-return (stale `prevConfigRef`) and leave `<head>` empty.
+      rerender({
+        title: 'Test',
+        description: 'Description',
+        structuredData: {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: 'Regression Article',
+        },
+      });
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      const script = document.querySelector(
+        'script[type="application/ld+json"]'
+      );
+      expect(script).not.toBeNull();
+      const content = JSON.parse(script?.textContent ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      expect(content.headline).toBe('Regression Article');
+    });
+
+    it('restores meta, OG, and JSON-LD tags on rerender with the exact same props reference after clearSEOTags', () => {
+      const sharedProps = {
+        title: 'Test',
+        description: 'Description',
+        structuredData: {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: 'Regression Article',
+        },
+      };
+
+      const { result, rerender } = renderHook(
+        (props: {
+          title?: string;
+          description?: string;
+          structuredData?: object;
+        }) => useSEO(props),
+        { initialProps: sharedProps }
+      );
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).not.toBeNull();
+
+      act(() => {
+        result.current.clearSEOTags();
+      });
+
+      expect(
+        document.querySelector(`meta[name="description"][${SEO_MARKER}="true"]`)
+      ).toBeNull();
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).toBeNull();
+
+      // Rerender with the SAME object reference (and thus the same
+      // `structuredData` reference too) — proves the fix does not
+      // accidentally depend on prop-object identity changing.
+      rerender(sharedProps);
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      const script = document.querySelector(
+        'script[type="application/ld+json"]'
+      );
+      expect(script).not.toBeNull();
+      const content = JSON.parse(script?.textContent ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      expect(content.headline).toBe('Regression Article');
+    });
+
     it('getCurrentSEO returns current config snapshot', () => {
       const { result } = renderHook(() =>
         useSEO({

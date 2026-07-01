@@ -1352,6 +1352,10 @@ export interface SEOHookReturn {
    * Remove all SEO tags added by this hook instance.
    * Useful when navigating away or cleaning up.
    *
+   * Also resets the hook's internal change-detection state, so the next
+   * render — even one whose config is identical to what was last applied —
+   * re-applies every tag from scratch instead of leaving `<head>` empty.
+   *
    * @example
    * ```typescript
    * const { clearSEOTags } = useSEO({ title: 'Page' });

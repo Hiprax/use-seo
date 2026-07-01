@@ -507,6 +507,12 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
    * `data-use-seo="true"` marker) are removed. Pre-existing user-authored
    * elements that the hook merely mutated are preserved — removing them
    * would be silent data loss.
+   *
+   * Also resets the hook's internal change-detection state (`prevConfigRef`
+   * and `jsonLdScriptsRef`), so a subsequent render — even one whose config
+   * serializes identically to the last-applied one — re-applies every tag
+   * from scratch instead of hitting the main effect's early-return and
+   * leaving `<head>` empty until some prop actually changes.
    */
   const clearSEOTags = useCallback((): void => {
     if (!canUseDOM()) return;
@@ -519,6 +525,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       }
     });
     addedElements.current.clear();
+
+    // Invalidate change-detection + JSON-LD reconciliation state so the next
+    // effect run re-applies every tag from scratch. Without this, a
+    // re-render with an unchanged config would hit the early-return in the
+    // main effect and never recreate the tags we just removed. Mirrors the
+    // unmount-cleanup effect below.
+    prevConfigRef.current = '';
+    jsonLdScriptsRef.current.clear();
   }, []);
 
   /**
