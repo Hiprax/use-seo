@@ -1,6 +1,6 @@
 {
   "name": "@hiprax/use-seo",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A production-ready React hook for managing SEO and social meta tags with full TypeScript support",
   "author": "Hiprax",
   "license": "MIT",

@@ -547,6 +547,9 @@ export interface SEOProps {
    * Article publication date in ISO 8601 format.
    * Used for article:published_time Open Graph meta tag.
    *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
+   *
    * @example
    * ```typescript
    * useSEO({ publishedTime: '2024-01-15T10:30:00Z' });
@@ -558,6 +561,9 @@ export interface SEOProps {
    * Article last modification date in ISO 8601 format.
    * Used for article:modified_time Open Graph meta tag.
    *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
+   *
    * @example
    * ```typescript
    * useSEO({ modifiedTime: '2024-02-01T14:20:00Z' });
@@ -568,6 +574,9 @@ export interface SEOProps {
   /**
    * Content expiration date in ISO 8601 format.
    * Used for article:expiration_time Open Graph meta tag.
+   *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
    *
    * @example
    * ```typescript
@@ -799,7 +808,8 @@ export interface SEOProps {
   ogAudios?: OpenGraphAudio[];
 
   // ===========================================================================
-  // Article-specific Open Graph (when ogType === 'article')
+  // Article-specific Open Graph (independent of `ogType`; recommended with
+  // `ogType: 'article'`)
   // ===========================================================================
 
   /**
@@ -809,6 +819,9 @@ export interface SEOProps {
    *
    * Per the Open Graph article extension, the value should be a profile URL
    * or identifier that resolves to the author.
+   *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
    *
    * @example
    * ```typescript
@@ -835,6 +848,9 @@ export interface SEOProps {
   /**
    * Article section / category for `article:section` Open Graph meta tag.
    *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
+   *
    * @example
    * ```typescript
    * useSEO({
@@ -850,6 +866,9 @@ export interface SEOProps {
   /**
    * Tags / topics for the article. Each tag emits its own
    * `<meta property="article:tag" content="...">` element.
+   *
+   * Emitted whenever this prop is provided, independent of `ogType`; setting
+   * `ogType: 'article'` is recommended for spec-conformant consumers/validators.
    *
    * @example
    * ```typescript

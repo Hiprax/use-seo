@@ -100,7 +100,7 @@ function ProductPage() {
 
 ## Module Formats (ESM / CJS)
 
-The package is published as a dual-format bundle (`dist/index.js` for ESM, `dist/index.cjs` for CJS) with TypeScript declarations for both. Both ergonomic forms below work in either format.
+The package is published as a dual-format bundle (`dist/index.mjs` for ESM, `dist/index.cjs` for CJS) with TypeScript declarations for both. Both ergonomic forms below work in either format.
 
 ```ts
 // ESM (modern bundlers, Vite, Webpack 5, Rollup, esbuild, Next.js, Remix, ...)
@@ -285,8 +285,13 @@ Emits `<meta property="og:audio">`, `og:audio:secure_url`, and
 
 ### Article Extensions
 
-When `ogType: 'article'`, the OG Article extension supports several typed
-properties for the article's authorship and topical metadata:
+The OG Article extension's typed properties for the article's authorship
+and topical metadata — `articleAuthor`, `articleSection`, `articleTags`,
+`publishedTime`, `modifiedTime`, and `expirationTime` — are emitted
+whenever the corresponding prop is provided, **independent of `ogType`**;
+setting `ogType: 'article'` is recommended so spec-conformant consumers
+(validators, crawlers, social platforms) correctly interpret these as OG
+Article extension data:
 
 ```tsx
 useSEO({
@@ -370,6 +375,11 @@ Emits `<meta name="twitter:player">`, `twitter:player:width`,
 `validateUrls`.
 
 ### Article Metadata
+
+The article date fields below (also covered under
+[Article Extensions](#article-extensions)) are emitted whenever provided,
+**independent of `ogType`**; setting `ogType: 'article'` is recommended
+for spec-conformant consumers:
 
 ```tsx
 useSEO({
@@ -1126,8 +1136,8 @@ src/
 The package is exercised by a comprehensive Jest suite under `tests/`
 covering the public hook, every utility module, the package's `exports`
 manifest, SSR (`node` Jest environment) safety, and dozens of regression
-cases. As of v0.2.5 the suite ships **509 tests** and reports
-**98.65% statements, 95.34% branches, 100% functions, and 100% lines**;
+cases. As of v0.3.2 the suite ships **512 tests** and reports
+**98.65% statements, 95.36% branches, 100% functions, and 100% lines**;
 the exact numbers may vary slightly per release. To reproduce the report
 locally:
 
