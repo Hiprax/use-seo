@@ -235,7 +235,14 @@ export interface RobotsObject {
 
   /**
    * Maximum length of the text snippet in search results.
-   * Use a number for character count, or 'none' to disable snippets.
+   * Use a number for character count.
+   *
+   * Per Google's robots-meta-tag spec, `max-snippet` only accepts an
+   * integer — `0` means "no snippet" (there is no literal `none` value).
+   * `'none'` is still accepted here for backward compatibility and
+   * serializes to the spec-correct `max-snippet:0`.
+   *
+   * @see {@link https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag Google: Robots meta tag specification}
    */
   maxSnippet?: number | 'none';
 
@@ -244,12 +251,22 @@ export interface RobotsObject {
    * - 'none': No image preview
    * - 'standard': Default size
    * - 'large': Larger preview (recommended for rich results)
+   *
+   * Unlike `maxSnippet`/`maxVideoPreview`, `max-image-preview` genuinely
+   * accepts the literal `none` value per Google's spec.
    */
   maxImagePreview?: 'none' | 'standard' | 'large';
 
   /**
    * Maximum seconds of video preview.
-   * Use a number for seconds, or 'none' to disable video previews.
+   * Use a number for seconds.
+   *
+   * Per Google's robots-meta-tag spec, `max-video-preview` only accepts an
+   * integer — `0` means "static image only, no video preview" (there is no
+   * literal `none` value). `'none'` is still accepted here for backward
+   * compatibility and serializes to the spec-correct `max-video-preview:0`.
+   *
+   * @see {@link https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag Google: Robots meta tag specification}
    */
   maxVideoPreview?: number | 'none';
 

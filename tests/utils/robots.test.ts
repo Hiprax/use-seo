@@ -50,9 +50,13 @@ describe('buildRobots', () => {
     expect(result.robots).toContain('max-snippet:150');
   });
 
-  it('builds robots string with maxSnippet none', () => {
+  it('maps legacy maxSnippet "none" to the spec-correct max-snippet:0', () => {
+    // Google's robots-meta-tag spec has no literal `none` value for
+    // max-snippet (only an integer, where 0 means "no snippet"); the
+    // serializer maps the backward-compat 'none' input to 0.
     const result = buildRobots({ maxSnippet: 'none' });
-    expect(result.robots).toContain('max-snippet:none');
+    expect(result.robots).toContain('max-snippet:0');
+    expect(result.robots).not.toContain('max-snippet:none');
   });
 
   it('builds robots string with maxImagePreview', () => {
@@ -198,9 +202,13 @@ describe('buildRobotsFromFlags', () => {
 });
 
 describe('buildRobots additional directives', () => {
-  it('handles maxVideoPreview with none', () => {
+  it('maps legacy maxVideoPreview "none" to the spec-correct max-video-preview:0', () => {
+    // Google's robots-meta-tag spec has no literal `none` value for
+    // max-video-preview (only an integer, where 0 means "static image
+    // only"); the serializer maps the backward-compat 'none' input to 0.
     const result = buildRobots({ maxVideoPreview: 'none' });
-    expect(result.robots).toContain('max-video-preview:none');
+    expect(result.robots).toContain('max-video-preview:0');
+    expect(result.robots).not.toContain('max-video-preview:none');
   });
 
   it('handles maxImagePreview with none', () => {
@@ -216,6 +224,55 @@ describe('buildRobots additional directives', () => {
   it('handles maxSnippet with zero', () => {
     const result = buildRobots({ maxSnippet: 0 });
     expect(result.robots).toContain('max-snippet:0');
+  });
+});
+
+describe('buildRobots "none" backward-compat mapping (maxSnippet/maxVideoPreview spec fix)', () => {
+  // Per Google's robots-meta-tag spec, only `max-image-preview` accepts the
+  // literal `none` value; `max-snippet` and `max-video-preview` accept only
+  // an integer (`0` meaning "no snippet" / "static image only"). Emitting
+  // `max-snippet:none` or `max-video-preview:none` is invalid and Google
+  // ignores the whole directive. The serializer maps the legacy `'none'`
+  // input to `0` for these two fields, both at the top level and nested
+  // inside `googlebot`, while leaving `maxImagePreview` untouched.
+
+  it('maps top-level maxSnippet "none" to max-snippet:0', () => {
+    expect(buildRobots({ maxSnippet: 'none' }).robots).toBe('max-snippet:0');
+  });
+
+  it('maps top-level maxVideoPreview "none" to max-video-preview:0', () => {
+    expect(buildRobots({ maxVideoPreview: 'none' }).robots).toBe(
+      'max-video-preview:0'
+    );
+  });
+
+  it('maps both maxSnippet and maxVideoPreview "none" together at the top level', () => {
+    expect(
+      buildRobots({ maxSnippet: 'none', maxVideoPreview: 'none' }).robots
+    ).toBe('max-snippet:0,max-video-preview:0');
+  });
+
+  it('maps googlebot maxSnippet "none" to max-snippet:0', () => {
+    expect(buildRobots({ googlebot: { maxSnippet: 'none' } }).googlebot).toBe(
+      'max-snippet:0'
+    );
+  });
+
+  it('maps googlebot maxVideoPreview "none" to max-video-preview:0', () => {
+    expect(
+      buildRobots({ googlebot: { maxVideoPreview: 'none' } }).googlebot
+    ).toBe('max-video-preview:0');
+  });
+
+  it('leaves maxImagePreview "none" as the literal value, top-level and in googlebot', () => {
+    // maxImagePreview genuinely accepts `none` per spec — only maxSnippet
+    // and maxVideoPreview are remapped by this fix.
+    expect(buildRobots({ maxImagePreview: 'none' }).robots).toBe(
+      'max-image-preview:none'
+    );
+    expect(
+      buildRobots({ googlebot: { maxImagePreview: 'none' } }).googlebot
+    ).toBe('max-image-preview:none');
   });
 });
 
@@ -274,6 +331,8 @@ describe('buildRobots positive directives (index/follow tri-state)', () => {
   });
 
   it('combines positive index with negative directives like noarchive', () => {
+    // maxSnippet: 'none' is the legacy backward-compat input; it serializes
+    // to the spec-correct `max-snippet:0` (see the dedicated mapping tests).
     const result = buildRobots({
       index: true,
       follow: false,
@@ -283,7 +342,7 @@ describe('buildRobots positive directives (index/follow tri-state)', () => {
       maxSnippet: 'none',
     });
     expect(result.robots).toBe(
-      'index,nofollow,noarchive,nosnippet,noimageindex,max-snippet:none'
+      'index,nofollow,noarchive,nosnippet,noimageindex,max-snippet:0'
     );
   });
 
@@ -297,6 +356,9 @@ describe('buildRobots positive directives (index/follow tri-state)', () => {
     expect(
       buildRobots({ googlebot: { index: false, follow: true } }).googlebot
     ).toBe('noindex,follow');
+    // maxVideoPreview: 'none' is the legacy backward-compat input; it
+    // serializes to the spec-correct `max-video-preview:0` within googlebot
+    // too (see the dedicated mapping tests).
     expect(
       buildRobots({
         googlebot: {
@@ -308,7 +370,7 @@ describe('buildRobots positive directives (index/follow tri-state)', () => {
         },
       }).googlebot
     ).toBe(
-      'index,follow,max-snippet:50,max-image-preview:standard,max-video-preview:none'
+      'index,follow,max-snippet:50,max-image-preview:standard,max-video-preview:0'
     );
   });
 

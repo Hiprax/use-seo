@@ -449,6 +449,8 @@ useSEO({
 > - `true` → emit the positive directive (`index` / `follow`)
 > - `false` → emit the negative directive (`noindex` / `nofollow`)
 > - `undefined` → omit the directive entirely (the search-engine default applies)
+>
+> **`maxSnippet` / `maxVideoPreview` accept `'none'`, but it's not what gets emitted:** per Google's robots-meta-tag spec, `max-snippet` and `max-video-preview` only accept an **integer** (`0` meaning "no snippet" / "static image only") — there is no literal `none` value for either. Only `maxImagePreview` genuinely accepts `'none'`. For backward compatibility, `maxSnippet: 'none'` and `maxVideoPreview: 'none'` are still accepted and are mapped to the spec-correct `max-snippet:0` / `max-video-preview:0` — pass `0` directly for the same effect. `maxImagePreview: 'none'` is unaffected and still emits `max-image-preview:none`.
 
 ### International SEO (Hreflang)
 
