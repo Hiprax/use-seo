@@ -983,7 +983,7 @@ export interface SEOProps {
   twitterPlayerHeight?: number;
 
   /**
-   * URL to a raw video or audio stream. Optional companion to
+   * URL to a raw video or audio stream (HTTPS-only). Optional companion to
    * `twitterPlayer` for direct streaming inside the timeline.
    * Emits `<meta name="twitter:player:stream" content="...">`.
    *

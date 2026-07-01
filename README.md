@@ -380,6 +380,12 @@ Emits `<meta name="twitter:player">`, `twitter:player:width`,
 `twitter:player:stream:content_type`. URL fields are validated against
 `validateUrls`.
 
+> **`twitterPlayer` and `twitterPlayerStream` must be HTTPS:** X's Player
+> Card validator rejects non-HTTPS player URLs. An `http:` value still
+> emits the tag, since this library warns rather than blocks, but it logs
+> a dev warning (when `enableWarnings` is `true`) so the problem surfaces
+> during development instead of silently failing validation on X.
+
 ### Article Metadata
 
 The article date fields below (also covered under

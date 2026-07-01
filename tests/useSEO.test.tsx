@@ -5161,6 +5161,109 @@ describe('Twitter Player Card typed fields', () => {
     // means we honor 0 literally rather than treating it as "unset".
     expect(getMetaContent('meta[name="twitter:player:width"]')).toBe('0');
   });
+
+  it('warns when twitterPlayer is a non-HTTPS URL, but still emits the tag', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'http://example.com/player',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    // Warn-don't-block: the tag is still emitted even though it's http:.
+    expect(getMetaContent('meta[name="twitter:player"]')).toBe(
+      'http://example.com/player'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when twitterPlayer is an HTTPS URL', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player"]')).toBe(
+      'https://example.com/player'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(0);
+
+    warnSpy.mockRestore();
+  });
+
+  it('warns when twitterPlayerStream is a non-HTTPS URL, but still emits the tag', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        twitterPlayerStream: 'http://example.com/stream.mp4',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player:stream"]')).toBe(
+      'http://example.com/stream.mp4'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player:stream should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when twitterPlayerStream is an HTTPS URL', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        twitterPlayerStream: 'https://example.com/stream.mp4',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player:stream"]')).toBe(
+      'https://example.com/stream.mp4'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player:stream should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(0);
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('Robots unavailable_after typed field', () => {

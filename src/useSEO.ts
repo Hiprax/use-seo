@@ -1133,6 +1133,15 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // we still clean up the previously-emitted player meta tags so they
       // don't linger across re-renders.
       if (twitterPlayer && isUrlValid(twitterPlayer, 'twitter:player')) {
+        if (!twitterPlayer.startsWith('https:')) {
+          // Warn-don't-block, matching how og:url/og:image handle `http:`
+          // values elsewhere: the tag is still emitted, but X's Player
+          // Card validator/crawler silently rejects non-HTTPS player URLs.
+          warn(
+            'twitter:player should be an HTTPS URL; X rejects non-HTTPS player URLs.',
+            enableWarnings
+          );
+        }
         updateMetaInternal({ name: 'twitter:player' }, twitterPlayer);
       } else {
         removeMarkedElements(
@@ -1166,6 +1175,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         twitterPlayerStream &&
         isUrlValid(twitterPlayerStream, 'twitter:player:stream')
       ) {
+        if (!twitterPlayerStream.startsWith('https:')) {
+          // Same HTTPS-only requirement as twitter:player above.
+          warn(
+            'twitter:player:stream should be an HTTPS URL; X rejects non-HTTPS player URLs.',
+            enableWarnings
+          );
+        }
         updateMetaInternal(
           { name: 'twitter:player:stream' },
           twitterPlayerStream
