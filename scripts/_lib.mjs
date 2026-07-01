@@ -44,13 +44,25 @@ export function run(cmd, args, opts = {}) {
     cwd = ROOT,
     env = process.env,
     allowFail = false,
+    shell = false,
   } = opts;
+  // Node's DEP0190: shell:true plus a populated args array silently joins
+  // them with bare spaces and no quoting, so one logical argument containing
+  // a space (a commit message, a `git for-each-ref` format string) splits
+  // into multiple shell words. git.exe/node.exe are real executables and
+  // never needed a shell; only npm's Windows .cmd shim does. Callers that
+  // opt into `shell` get the whole command pre-joined into a single string
+  // with an empty args array instead - only safe because every current
+  // shell:true call site uses space-free arguments.
+  const useShell = shell && process.platform === 'win32';
+  const spawnCmd = useShell ? [cmd, ...args].join(' ') : cmd;
+  const spawnArgs = useShell ? [] : args;
   return new Promise((resolveCmd, rejectCmd) => {
-    const child = spawn(cmd, args, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd,
       env,
       stdio: silent ? 'pipe' : 'inherit',
-      shell: process.platform === 'win32',
+      shell: useShell,
     });
     let stdoutBuf = '';
     let stderrBuf = '';
@@ -63,7 +75,7 @@ export function run(cmd, args, opts = {}) {
         resolveCmd({ code, stdout: stdoutBuf, stderr: stderrBuf });
       } else {
         const err = new Error(
-          `Command failed (${code}): ${cmd} ${args.join(' ')}`,
+          `Command failed (${code}): ${cmd} ${args.join(' ')}`
         );
         err.code = code;
         err.stdout = stdoutBuf;
@@ -137,9 +149,7 @@ export async function ask(question, defaultValue = '') {
   if (SKIP_PROMPTS) return defaultValue;
   const rl = createInterface({ input: stdin, output: stdout });
   const hint = defaultValue ? c.dim(` (${defaultValue})`) : '';
-  const ans = (
-    await rl.question(`${c.cyan('?')} ${question}${hint} `)
-  ).trim();
+  const ans = (await rl.question(`${c.cyan('?')} ${question}${hint} `)).trim();
   rl.close();
   return ans || defaultValue;
 }

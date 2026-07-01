@@ -58,7 +58,10 @@ main(async () => {
     const start = performance.now();
     process.stdout.write(`  ${c.dim('...')} ${check.name.padEnd(20)} `);
     try {
-      await run('npm', ['run', '--silent', check.script], { silent: true });
+      await run('npm', ['run', '--silent', check.script], {
+        silent: true,
+        shell: true,
+      });
       const dur = ((performance.now() - start) / 1000).toFixed(1);
       console.log(`${c.green('PASS')} ${c.dim(`(${dur}s)`)}`);
       results.push({ ...check, status: 'PASS', duration: dur });
@@ -81,9 +84,7 @@ main(async () => {
   console.log(c.bold('Summary:'));
   for (const r of results) {
     const mark = r.status === 'PASS' ? c.green('OK') : c.red('X');
-    console.log(
-      `  ${mark} ${r.name.padEnd(20)} ${c.dim(`${r.duration}s`)}`,
-    );
+    console.log(`  ${mark} ${r.name.padEnd(20)} ${c.dim(`${r.duration}s`)}`);
   }
 
   if (failed.length === 0) {

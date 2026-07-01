@@ -78,7 +78,11 @@ function robotsObjectToString(opt: RobotsObject): string {
 
   // Max directives
   if (opt.maxSnippet !== undefined) {
-    parts.push(`max-snippet:${opt.maxSnippet}`);
+    // Google: max-snippet takes an integer; `0` means "no snippet". The
+    // legacy `'none'` value maps to `0` (emitting `max-snippet:none` is
+    // invalid and Google would ignore it).
+    const v = opt.maxSnippet === 'none' ? 0 : opt.maxSnippet;
+    parts.push(`max-snippet:${v}`);
   }
 
   if (opt.maxImagePreview) {
@@ -86,7 +90,10 @@ function robotsObjectToString(opt: RobotsObject): string {
   }
 
   if (opt.maxVideoPreview !== undefined) {
-    parts.push(`max-video-preview:${opt.maxVideoPreview}`);
+    // Google: max-video-preview takes an integer; `0` means "static image
+    // only" (no video preview). Legacy `'none'` maps to `0`.
+    const v = opt.maxVideoPreview === 'none' ? 0 : opt.maxVideoPreview;
+    parts.push(`max-video-preview:${v}`);
   }
 
   // Time-limited indexing. Per Google's spec, the value is appended verbatim

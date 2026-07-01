@@ -325,6 +325,12 @@ identifiers (e.g., `"Jane Doe"`) pass through unchanged. Multi-value tags
 follow the same cleanup-on-removal pattern as `ogImages` and
 `ogLocaleAlternates`.
 
+The single-value fields — `articleSection`, `publishedTime`,
+`modifiedTime`, and `expirationTime` — are cleaned up on re-render when
+their prop becomes unset, so navigating from an article page to a
+non-article page in the same component instance does not leave stale
+`article:*` tags behind for crawlers (parity with `og:locale`/`og:url`).
+
 ### Twitter Cards
 
 ```tsx
@@ -374,6 +380,12 @@ Emits `<meta name="twitter:player">`, `twitter:player:width`,
 `twitter:player:stream:content_type`. URL fields are validated against
 `validateUrls`.
 
+> **`twitterPlayer` and `twitterPlayerStream` must be HTTPS:** X's Player
+> Card validator rejects non-HTTPS player URLs. An `http:` value still
+> emits the tag, since this library warns rather than blocks, but it logs
+> a dev warning (when `enableWarnings` is `true`) so the problem surfaces
+> during development instead of silently failing validation on X.
+
 ### Article Metadata
 
 The article date fields below (also covered under
@@ -395,6 +407,11 @@ useSEO({
   expirationTime: '2025-12-31T23:59:59Z',
 });
 ```
+
+Stale tags are cleaned up on re-render when the corresponding prop is
+removed — unsetting `publishedTime` (or `modifiedTime` / `expirationTime`)
+on a later render removes the matching hook-created `article:*_time` meta
+instead of leaving it in the DOM.
 
 ### Robots Directives
 
@@ -438,6 +455,8 @@ useSEO({
 > - `true` → emit the positive directive (`index` / `follow`)
 > - `false` → emit the negative directive (`noindex` / `nofollow`)
 > - `undefined` → omit the directive entirely (the search-engine default applies)
+>
+> **`maxSnippet` / `maxVideoPreview` accept `'none'`, but it's not what gets emitted:** per Google's robots-meta-tag spec, `max-snippet` and `max-video-preview` only accept an **integer** (`0` meaning "no snippet" / "static image only") — there is no literal `none` value for either. Only `maxImagePreview` genuinely accepts `'none'`. For backward compatibility, `maxSnippet: 'none'` and `maxVideoPreview: 'none'` are still accepted and are mapped to the spec-correct `max-snippet:0` / `max-video-preview:0` — pass `0` directly for the same effect. `maxImagePreview: 'none'` is unaffected and still emits `max-image-preview:none`.
 
 ### International SEO (Hreflang)
 
@@ -1136,8 +1155,8 @@ src/
 The package is exercised by a comprehensive Jest suite under `tests/`
 covering the public hook, every utility module, the package's `exports`
 manifest, SSR (`node` Jest environment) safety, and dozens of regression
-cases. As of v0.3.2 the suite ships **512 tests** and reports
-**98.65% statements, 95.36% branches, 100% functions, and 100% lines**;
+cases. As of v0.3.3 the suite ships **538 tests** and reports
+**98.67% statements, 95.33% branches, 100% functions, and 100% lines**;
 the exact numbers may vary slightly per release. To reproduce the report
 locally:
 

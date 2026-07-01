@@ -273,6 +273,16 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // overwriting an unrelated meta element.
       if (!key.name && !key.property && !key.httpEquiv) return;
 
+      // Ownership tracking now happens INSIDE `getOrCreateMeta`, on its
+      // create path only: it adds a brand-new element to `addedElements`
+      // but skips a reused one. That distinction matters across multiple
+      // live `useSEO` instances sharing one document — a marker-based check
+      // here (`meta.getAttribute(SEO_MARKER) === 'true'`) can't tell "I
+      // created this" from "some OTHER instance created this and I'm just
+      // mutating it", so it used to adopt other instances' elements into
+      // this instance's Set. Adopting them meant this instance's
+      // `clearSEOTags`/`clearOnUnmount` could delete an element a sibling
+      // instance still depended on.
       const meta = getOrCreateMeta(
         key,
         preventDuplicates,
@@ -280,13 +290,6 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       );
       if (!meta) return;
       meta.setAttribute('content', content);
-      // Only track elements that the hook actually CREATED (carry the SEO
-      // marker). Pre-existing user-authored elements that we merely mutate
-      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
-      // them — that's data loss.
-      if (meta.getAttribute(SEO_MARKER) === 'true') {
-        addedElements.current.add(meta);
-      }
     },
     [preventDuplicates]
   );
@@ -399,6 +402,10 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         return;
       }
 
+      // See the matching comment in `updateMetaInternal`: ownership tracking
+      // now happens INSIDE `getOrCreateLink`'s create path, so a reused
+      // element created by a different `useSEO` instance is never adopted
+      // into this instance's `addedElements` Set.
       const link = getOrCreateLink(
         rel,
         unique,
@@ -415,14 +422,6 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       if (attrs.as) link.setAttribute('as', attrs.as);
       if (attrs.crossOrigin)
         link.setAttribute('crossorigin', attrs.crossOrigin);
-
-      // Only track elements that the hook actually CREATED (carry the SEO
-      // marker). Pre-existing user-authored elements that we merely mutate
-      // must NOT be tracked, otherwise `clearSEOTags` would silently delete
-      // them — that's data loss.
-      if (link.getAttribute(SEO_MARKER) === 'true') {
-        addedElements.current.add(link);
-      }
     },
     [validateUrls, enableWarnings]
   );
@@ -507,6 +506,12 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
    * `data-use-seo="true"` marker) are removed. Pre-existing user-authored
    * elements that the hook merely mutated are preserved — removing them
    * would be silent data loss.
+   *
+   * Also resets the hook's internal change-detection state (`prevConfigRef`
+   * and `jsonLdScriptsRef`), so a subsequent render — even one whose config
+   * serializes identically to the last-applied one — re-applies every tag
+   * from scratch instead of hitting the main effect's early-return and
+   * leaving `<head>` empty until some prop actually changes.
    */
   const clearSEOTags = useCallback((): void => {
     if (!canUseDOM()) return;
@@ -519,6 +524,14 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       }
     });
     addedElements.current.clear();
+
+    // Invalidate change-detection + JSON-LD reconciliation state so the next
+    // effect run re-applies every tag from scratch. Without this, a
+    // re-render with an unchanged config would hit the early-return in the
+    // main effect and never recreate the tags we just removed. Mirrors the
+    // unmount-cleanup effect below.
+    prevConfigRef.current = '';
+    jsonLdScriptsRef.current.clear();
   }, []);
 
   /**
@@ -711,14 +724,32 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
           { property: 'article:published_time' },
           publishedTime
         );
+      } else {
+        // Stale-cleanup parity with the sibling `article:section` tag: an
+        // SPA nav away from an article page (same hook instance) must not
+        // leave a stale published-time directive in the DOM for crawlers.
+        removeMarkedElements(
+          'meta[property="article:published_time"]',
+          addedElements.current
+        );
       }
       if (modifiedTime) {
         updateMetaInternal({ property: 'article:modified_time' }, modifiedTime);
+      } else {
+        removeMarkedElements(
+          'meta[property="article:modified_time"]',
+          addedElements.current
+        );
       }
       if (expirationTime) {
         updateMetaInternal(
           { property: 'article:expiration_time' },
           expirationTime
+        );
+      } else {
+        removeMarkedElements(
+          'meta[property="article:expiration_time"]',
+          addedElements.current
         );
       }
 
@@ -1102,6 +1133,15 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
       // we still clean up the previously-emitted player meta tags so they
       // don't linger across re-renders.
       if (twitterPlayer && isUrlValid(twitterPlayer, 'twitter:player')) {
+        if (!twitterPlayer.startsWith('https:')) {
+          // Warn-don't-block, matching how og:url/og:image handle `http:`
+          // values elsewhere: the tag is still emitted, but X's Player
+          // Card validator/crawler silently rejects non-HTTPS player URLs.
+          warn(
+            'twitter:player should be an HTTPS URL; X rejects non-HTTPS player URLs.',
+            enableWarnings
+          );
+        }
         updateMetaInternal({ name: 'twitter:player' }, twitterPlayer);
       } else {
         removeMarkedElements(
@@ -1135,6 +1175,13 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
         twitterPlayerStream &&
         isUrlValid(twitterPlayerStream, 'twitter:player:stream')
       ) {
+        if (!twitterPlayerStream.startsWith('https:')) {
+          // Same HTTPS-only requirement as twitter:player above.
+          warn(
+            'twitter:player:stream should be an HTTPS URL; X rejects non-HTTPS player URLs.',
+            enableWarnings
+          );
+        }
         updateMetaInternal(
           { name: 'twitter:player:stream' },
           twitterPlayerStream
@@ -1448,9 +1495,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     //   between renders — either because they're computed from a fallback
     //   chain (og:url, twitter:image, robots) or because a stale directive
     //   would mislead crawlers/social scrapers (og:locale, article:section,
-    //   twitter:player and its width/height/stream/stream:content_type
-    //   sub-fields, googlebot) — are cleaned up via `removeMarkedElements`
-    //   when that render's effective value is absent.
+    //   article:published_time, article:modified_time,
+    //   article:expiration_time, twitter:player and its
+    //   width/height/stream/stream:content_type sub-fields, googlebot) —
+    //   are cleaned up via `removeMarkedElements` when that render's
+    //   effective value is absent.
     // - Primary content that mirrors document-global state (title, language)
     //   and plain descriptive scalars (e.g. description, og:site_name,
     //   twitter:creator/site/image:alt, and the OG/Twitter title/description

@@ -170,6 +170,76 @@ describe('getOrCreateLink', () => {
   });
 });
 
+describe('getOrCreateMeta / getOrCreateLink create-path ownership tracking', () => {
+  // Ownership tracking moved from the caller (a marker check in useSEO.ts)
+  // into these two helpers themselves: a `trackedElements` Set now gains a
+  // new entry ONLY when the call creates a brand-new element. An element
+  // returned via the reuse path is never added, even though it carries the
+  // SEO marker — it may be owned by a DIFFERENT `useSEO` instance sharing
+  // the same document, and adopting it would let this caller's cleanup
+  // (`clearSEOTags`) delete an element the other instance still depends on.
+  beforeEach(() => {
+    document.head.innerHTML = '';
+  });
+
+  it('getOrCreateMeta adds a newly-created element to trackedElements', () => {
+    const tracked = new Set<Element>();
+
+    const meta = getOrCreateMeta({ name: 'description' }, true, tracked);
+
+    expect(tracked.size).toBe(1);
+    expect(tracked.has(meta as HTMLMetaElement)).toBe(true);
+  });
+
+  it('getOrCreateMeta does NOT add a reused (pre-existing) element to trackedElements, even when it carries the SEO marker', () => {
+    // Simulates an element created by ANOTHER `useSEO` instance: it already
+    // carries the marker, but this call's own `trackedElements` Set starts
+    // empty because THIS caller never created it.
+    const ownedByOtherInstance = document.createElement('meta');
+    ownedByOtherInstance.setAttribute('name', 'description');
+    ownedByOtherInstance.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(ownedByOtherInstance);
+
+    const tracked = new Set<Element>();
+    const meta = getOrCreateMeta({ name: 'description' }, true, tracked);
+
+    expect(meta).toBe(ownedByOtherInstance);
+    expect(tracked.size).toBe(0);
+    expect(tracked.has(ownedByOtherInstance)).toBe(false);
+  });
+
+  it('getOrCreateMeta does not throw when trackedElements is omitted on the create path', () => {
+    expect(() => getOrCreateMeta({ name: 'description' }, true)).not.toThrow();
+  });
+
+  it('getOrCreateLink adds a newly-created element to trackedElements', () => {
+    const tracked = new Set<Element>();
+
+    const link = getOrCreateLink('canonical', true, undefined, tracked);
+
+    expect(tracked.size).toBe(1);
+    expect(tracked.has(link)).toBe(true);
+  });
+
+  it('getOrCreateLink does NOT add a reused (pre-existing) element to trackedElements, even when it carries the SEO marker', () => {
+    const ownedByOtherInstance = document.createElement('link');
+    ownedByOtherInstance.setAttribute('rel', 'canonical');
+    ownedByOtherInstance.setAttribute(SEO_MARKER, 'true');
+    document.head.appendChild(ownedByOtherInstance);
+
+    const tracked = new Set<Element>();
+    const link = getOrCreateLink('canonical', true, undefined, tracked);
+
+    expect(link).toBe(ownedByOtherInstance);
+    expect(tracked.size).toBe(0);
+    expect(tracked.has(ownedByOtherInstance)).toBe(false);
+  });
+
+  it('getOrCreateLink does not throw when trackedElements is omitted on the create path', () => {
+    expect(() => getOrCreateLink('canonical', true)).not.toThrow();
+  });
+});
+
 describe('removeMarkedElements', () => {
   beforeEach(() => {
     document.head.innerHTML = '';

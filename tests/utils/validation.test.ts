@@ -462,6 +462,33 @@ describe('inferImageMimeType', () => {
       'image/tiff'
     );
   });
+
+  it('ignores a dotted extension embedded in the query string of an extensionless path', () => {
+    expect(
+      inferImageMimeType('https://img.example.com/render?w=100&file=photo.png')
+    ).toBeUndefined();
+    expect(
+      inferImageMimeType('https://example.com/dynamic-image?ratio=1.5')
+    ).toBeUndefined();
+    // Stronger discriminator than the `ratio=1.5` case above: the query value
+    // ends in a REAL registered image extension, so the old pre-fix regex
+    // (which backtracked past `?` to the last dotted run) would resolve a
+    // wrong MIME type here, not merely fail to look up an unregistered
+    // extension like '5'. This locks in the query/hash-stripping fix with a
+    // second independent discriminating assertion.
+    expect(
+      inferImageMimeType('https://example.com/dynamic-image?src=cover.webp')
+    ).toBeUndefined();
+  });
+
+  it('still infers the extension when the path itself has one, query string notwithstanding', () => {
+    expect(inferImageMimeType('https://example.com/image.png?v=2')).toBe(
+      'image/png'
+    );
+    expect(inferImageMimeType('https://example.com/image.jpg#frag')).toBe(
+      'image/jpeg'
+    );
+  });
 });
 
 describe('normalizeCanonical edge cases', () => {

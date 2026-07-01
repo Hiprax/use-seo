@@ -356,6 +356,95 @@ describe('useSEO Hook', () => {
         '2025-12-31T23:59:59Z'
       );
     });
+
+    it('cleans up article:published_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { publishedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { publishedTime: '2024-01-15T10:30:00Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:published_time"]')).toBe(
+        '2024-01-15T10:30:00Z'
+      );
+
+      rerender({ publishedTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:published_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('cleans up article:modified_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { modifiedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { modifiedTime: '2024-02-01T14:20:00Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:modified_time"]')).toBe(
+        '2024-02-01T14:20:00Z'
+      );
+
+      rerender({ modifiedTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:modified_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('cleans up article:expiration_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { expirationTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { expirationTime: '2025-12-31T23:59:59Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:expiration_time"]')).toBe(
+        '2025-12-31T23:59:59Z'
+      );
+
+      rerender({ expirationTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:expiration_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('preserves a user-authored article:published_time meta when the prop disappears', () => {
+      const userPublishedTime = document.createElement('meta');
+      userPublishedTime.setAttribute('property', 'article:published_time');
+      userPublishedTime.setAttribute('content', '2020-01-01T00:00:00Z');
+      document.head.appendChild(userPublishedTime);
+
+      const { rerender } = renderHook(
+        (props: { publishedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { publishedTime: '2024-01-15T10:30:00Z' },
+        }
+      );
+
+      rerender({ publishedTime: undefined });
+
+      // User-authored element stays; it never gained the SEO marker, so the
+      // cleanup-on-unset branch (which only targets marked elements) leaves
+      // it untouched.
+      expect(document.head.contains(userPublishedTime)).toBe(true);
+      expect(userPublishedTime.getAttribute(SEO_MARKER)).toBeNull();
+    });
   });
 
   describe('Canonical and Links', () => {
@@ -790,6 +879,133 @@ describe('useSEO Hook', () => {
         `meta[property="og:title"][${SEO_MARKER}="true"]`
       );
       expect(markedOgTitle).toBeNull();
+    });
+
+    it('restores meta, OG, and JSON-LD tags on rerender with identical (but fresh) props after clearSEOTags', () => {
+      const { result, rerender } = renderHook(
+        (props: {
+          title?: string;
+          description?: string;
+          structuredData?: object;
+        }) => useSEO(props),
+        {
+          initialProps: {
+            title: 'Test',
+            description: 'Description',
+            structuredData: {
+              '@context': 'https://schema.org',
+              '@type': 'Article',
+              headline: 'Regression Article',
+            },
+          },
+        }
+      );
+
+      // Sanity: everything present before clearing.
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).not.toBeNull();
+
+      act(() => {
+        result.current.clearSEOTags();
+      });
+
+      // Confirm the clear actually removed everything hook-created — the
+      // restoration assertions below would be meaningless otherwise.
+      expect(
+        document.querySelector(`meta[name="description"][${SEO_MARKER}="true"]`)
+      ).toBeNull();
+      expect(
+        document.querySelector(
+          `meta[property="og:title"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).toBeNull();
+
+      // Rerender with a FRESH object literal carrying identical values — the
+      // serialized config is byte-identical to what was last applied, which
+      // is exactly the scenario that used to hit the main effect's
+      // early-return (stale `prevConfigRef`) and leave `<head>` empty.
+      rerender({
+        title: 'Test',
+        description: 'Description',
+        structuredData: {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: 'Regression Article',
+        },
+      });
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      const script = document.querySelector(
+        'script[type="application/ld+json"]'
+      );
+      expect(script).not.toBeNull();
+      const content = JSON.parse(script?.textContent ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      expect(content.headline).toBe('Regression Article');
+    });
+
+    it('restores meta, OG, and JSON-LD tags on rerender with the exact same props reference after clearSEOTags', () => {
+      const sharedProps = {
+        title: 'Test',
+        description: 'Description',
+        structuredData: {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: 'Regression Article',
+        },
+      };
+
+      const { result, rerender } = renderHook(
+        (props: {
+          title?: string;
+          description?: string;
+          structuredData?: object;
+        }) => useSEO(props),
+        { initialProps: sharedProps }
+      );
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).not.toBeNull();
+
+      act(() => {
+        result.current.clearSEOTags();
+      });
+
+      expect(
+        document.querySelector(`meta[name="description"][${SEO_MARKER}="true"]`)
+      ).toBeNull();
+      expect(
+        document.querySelector('script[type="application/ld+json"]')
+      ).toBeNull();
+
+      // Rerender with the SAME object reference (and thus the same
+      // `structuredData` reference too) — proves the fix does not
+      // accidentally depend on prop-object identity changing.
+      rerender(sharedProps);
+
+      expect(getMetaContent('meta[name="description"]')).toBe('Description');
+      expect(getMetaContent('meta[property="og:title"]')).toBe('Test');
+      const script = document.querySelector(
+        'script[type="application/ld+json"]'
+      );
+      expect(script).not.toBeNull();
+      const content = JSON.parse(script?.textContent ?? '{}') as Record<
+        string,
+        unknown
+      >;
+      expect(content.headline).toBe('Regression Article');
     });
 
     it('getCurrentSEO returns current config snapshot', () => {
@@ -2992,6 +3208,115 @@ describe('Additional Edge Cases', () => {
     });
   });
 
+  describe('Two-instance shared-tag ownership', () => {
+    // Two live `useSEO` instances writing the SAME single-value tag used to
+    // be a genuine ownership bug: `updateMetaInternal`/`updateLinkInternal`
+    // tracked any element carrying the SEO marker, including one an EARLIER
+    // instance created and this instance merely reused/mutated. That let a
+    // later instance's `clearSEOTags()` (or unmount with
+    // `clearOnUnmount: true`) delete an element a sibling instance still
+    // depended on. Ownership tracking now lives in `getOrCreateMeta`/
+    // `getOrCreateLink` themselves and only fires on the create path, so a
+    // reused element is never adopted into the wrong instance's Set.
+    it('instance B reuses (mutates) the shared description meta created by instance A, but B.clearSEOTags() does not remove it', () => {
+      const { result: resultA } = renderHook(() =>
+        useSEO({
+          description: 'Description A',
+          autoCanonical: false,
+          enableWarnings: false,
+        })
+      );
+
+      // Instance A created the shared description meta.
+      expect(getMetaContent('meta[name="description"]')).toBe('Description A');
+      const descriptionMeta = document.querySelector(
+        'meta[name="description"]'
+      );
+      expect(descriptionMeta?.getAttribute(SEO_MARKER)).toBe('true');
+
+      const { result: resultB } = renderHook(() =>
+        useSEO({
+          description: 'Description B',
+          autoCanonical: false,
+          enableWarnings: false,
+        })
+      );
+
+      // Instance B mutated the SAME element A created (still exactly one
+      // description meta in the document) — that write-through is expected
+      // "last writer wins" behavior for a shared single-value tag and is
+      // NOT what this fix changes.
+      expect(document.querySelectorAll('meta[name="description"]').length).toBe(
+        1
+      );
+      expect(getMetaContent('meta[name="description"]')).toBe('Description B');
+
+      // B never CREATED this element, so B's cleanup must not remove it —
+      // instance A (and anything reading the tag) still needs it present.
+      act(() => {
+        resultB.current.clearSEOTags();
+      });
+
+      expect(document.querySelector('meta[name="description"]')).not.toBeNull();
+      expect(getMetaContent('meta[name="description"]')).toBe('Description B');
+
+      // Sanity: A's own clearSEOTags() still owns and can remove the
+      // element it created (single-instance ownership is unaffected).
+      act(() => {
+        resultA.current.clearSEOTags();
+      });
+      expect(document.querySelector('meta[name="description"]')).toBeNull();
+    });
+
+    it('instance B reuses (mutates) the shared canonical link created by instance A, but B.clearSEOTags() does not remove it', () => {
+      const { result: resultA } = renderHook(() =>
+        useSEO({
+          canonical: 'https://example.com/a',
+          autoCanonical: false,
+          enableWarnings: false,
+        })
+      );
+
+      expect(getLinkHref('link[rel="canonical"]')).toBe(
+        'https://example.com/a'
+      );
+      const canonicalLink = document.querySelector('link[rel="canonical"]');
+      expect(canonicalLink?.getAttribute(SEO_MARKER)).toBe('true');
+
+      const { result: resultB } = renderHook(() =>
+        useSEO({
+          canonical: 'https://example.com/b',
+          autoCanonical: false,
+          enableWarnings: false,
+        })
+      );
+
+      // Instance B mutated the SAME link A created (still exactly one
+      // canonical link in the document).
+      expect(document.querySelectorAll('link[rel="canonical"]').length).toBe(1);
+      expect(getLinkHref('link[rel="canonical"]')).toBe(
+        'https://example.com/b'
+      );
+
+      // B never CREATED this element, so B's cleanup must not remove it.
+      act(() => {
+        resultB.current.clearSEOTags();
+      });
+
+      expect(document.querySelector('link[rel="canonical"]')).not.toBeNull();
+      expect(getLinkHref('link[rel="canonical"]')).toBe(
+        'https://example.com/b'
+      );
+
+      // Sanity: A's own clearSEOTags() still owns and can remove the link
+      // it created (single-instance ownership is unaffected).
+      act(() => {
+        resultA.current.clearSEOTags();
+      });
+      expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+    });
+  });
+
   describe('clearOnUnmount option', () => {
     it('removes hook-created DOM elements when unmounting with clearOnUnmount: true', () => {
       const { unmount } = renderHook(() =>
@@ -4835,6 +5160,109 @@ describe('Twitter Player Card typed fields', () => {
     // Width=0 is unusual but valid syntax — explicit `undefined` semantics
     // means we honor 0 literally rather than treating it as "unset".
     expect(getMetaContent('meta[name="twitter:player:width"]')).toBe('0');
+  });
+
+  it('warns when twitterPlayer is a non-HTTPS URL, but still emits the tag', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'http://example.com/player',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    // Warn-don't-block: the tag is still emitted even though it's http:.
+    expect(getMetaContent('meta[name="twitter:player"]')).toBe(
+      'http://example.com/player'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when twitterPlayer is an HTTPS URL', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player"]')).toBe(
+      'https://example.com/player'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(0);
+
+    warnSpy.mockRestore();
+  });
+
+  it('warns when twitterPlayerStream is a non-HTTPS URL, but still emits the tag', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        twitterPlayerStream: 'http://example.com/stream.mp4',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player:stream"]')).toBe(
+      'http://example.com/stream.mp4'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player:stream should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not warn when twitterPlayerStream is an HTTPS URL', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    process.env.NODE_ENV = 'development';
+
+    renderHook(() =>
+      useSEO({
+        twitterCard: 'player',
+        twitterPlayer: 'https://example.com/player',
+        twitterPlayerStream: 'https://example.com/stream.mp4',
+        autoCanonical: false,
+        enableWarnings: true,
+      })
+    );
+
+    expect(getMetaContent('meta[name="twitter:player:stream"]')).toBe(
+      'https://example.com/stream.mp4'
+    );
+
+    const httpsWarnings = warnSpy.mock.calls.filter((call) =>
+      String(call[0]).includes('twitter:player:stream should be an HTTPS URL')
+    );
+    expect(httpsWarnings.length).toBe(0);
+
+    warnSpy.mockRestore();
   });
 });
 
