@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-07-01
+
+### Security
+
+- **Patched transitive `@babel/core` vulnerability (GHSA-4x5r-pxfx-6jf8, CVE-2026-49356)** - `@babel/core` was pulled in transitively at `7.28.5` via `eslint-plugin-react-hooks`, `jest`, and `ts-jest` (none of which pin an upper bound below the fix), and versions `<= 7.29.0` are vulnerable to an arbitrary file read through a crafted `sourceMappingURL` comment when compiling untrusted source. This project never invokes Babel on user-supplied or untrusted code (`@babel/core` is only ever exercised as a build-tool dependency of the test/lint toolchain), so the practical exposure was effectively nil, but the registry-reported advisory is now closed regardless. Rather than adding an unnecessary direct devDependency, `package.json` gains a new top-level `overrides` field pinning `@babel/core` to `^7.29.7` (`7.29.6` is the minimum patched release; `7.29.7` was the latest at fix time), which every existing consumer's declared peer range (`^7.0.0` through `^7.27.4`) already permits, so `npm install` resolves cleanly with no `--force` and no other package needed to move. (`package.json`, `package-lock.json`)
+
+### Fixed
+
+- **Removed an unreachable `?? url` fallback branch in `inferImageMimeType`** - `src/utils/validation.ts`'s query/hash-stripping line read `url.split(/[?#]/, 1)[0] ?? url`; the `?? url` fallback existed only to satisfy `noUncheckedIndexedAccess`'s `string | undefined` typing on the array index, since `String.prototype.split` with a limit of `1` always returns exactly one element and can never make that index `undefined` at runtime. No test can exercise a branch that is structurally unreachable, so it surfaced as a permanent partial-branch gap in coverage reports, including a failing `codecov/patch` check on the previous release. Rewritten as `url.replace(/[?#].*$/, '')`, which strips the same query/hash suffix but returns a plain `string`, eliminating both the dead branch and the type-checker workaround it existed for. Behavior is unchanged for every input, confirmed by the existing `inferImageMimeType` test suite passing unmodified. (`src/utils/validation.ts`)
+
 ## [0.3.3] - 2026-07-01
 
 ### Fixed

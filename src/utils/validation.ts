@@ -246,10 +246,12 @@ export function inferImageMimeType(url: string): string | undefined {
     return undefined;
   }
 
-  // Consider only the path segment — strip any query/hash first so an
+  // Consider only the path segment: strip any query/hash first so an
   // extension embedded in a query value (e.g. `/render?file=photo.png`) on an
-  // extensionless path is NOT mistaken for the resource extension.
-  const path = url.split(/[?#]/, 1)[0] ?? url;
+  // extensionless path is NOT mistaken for the resource extension. Using
+  // `replace` (not `split(...)[0]`) keeps the result typed as `string`, with
+  // no `undefined` case to guard against under `noUncheckedIndexedAccess`.
+  const path = url.replace(/[?#].*$/, '');
   const pathMatch = path.match(/\.([a-z0-9]+)$/i);
   if (!pathMatch?.[1]) {
     return undefined;
