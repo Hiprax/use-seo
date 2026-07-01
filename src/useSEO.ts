@@ -725,14 +725,32 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
           { property: 'article:published_time' },
           publishedTime
         );
+      } else {
+        // Stale-cleanup parity with the sibling `article:section` tag: an
+        // SPA nav away from an article page (same hook instance) must not
+        // leave a stale published-time directive in the DOM for crawlers.
+        removeMarkedElements(
+          'meta[property="article:published_time"]',
+          addedElements.current
+        );
       }
       if (modifiedTime) {
         updateMetaInternal({ property: 'article:modified_time' }, modifiedTime);
+      } else {
+        removeMarkedElements(
+          'meta[property="article:modified_time"]',
+          addedElements.current
+        );
       }
       if (expirationTime) {
         updateMetaInternal(
           { property: 'article:expiration_time' },
           expirationTime
+        );
+      } else {
+        removeMarkedElements(
+          'meta[property="article:expiration_time"]',
+          addedElements.current
         );
       }
 
@@ -1462,9 +1480,11 @@ export function useSEO(props: SEOProps = {}): SEOHookReturn {
     //   between renders — either because they're computed from a fallback
     //   chain (og:url, twitter:image, robots) or because a stale directive
     //   would mislead crawlers/social scrapers (og:locale, article:section,
-    //   twitter:player and its width/height/stream/stream:content_type
-    //   sub-fields, googlebot) — are cleaned up via `removeMarkedElements`
-    //   when that render's effective value is absent.
+    //   article:published_time, article:modified_time,
+    //   article:expiration_time, twitter:player and its
+    //   width/height/stream/stream:content_type sub-fields, googlebot) —
+    //   are cleaned up via `removeMarkedElements` when that render's
+    //   effective value is absent.
     // - Primary content that mirrors document-global state (title, language)
     //   and plain descriptive scalars (e.g. description, og:site_name,
     //   twitter:creator/site/image:alt, and the OG/Twitter title/description

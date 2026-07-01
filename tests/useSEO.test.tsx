@@ -356,6 +356,95 @@ describe('useSEO Hook', () => {
         '2025-12-31T23:59:59Z'
       );
     });
+
+    it('cleans up article:published_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { publishedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { publishedTime: '2024-01-15T10:30:00Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:published_time"]')).toBe(
+        '2024-01-15T10:30:00Z'
+      );
+
+      rerender({ publishedTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:published_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('cleans up article:modified_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { modifiedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { modifiedTime: '2024-02-01T14:20:00Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:modified_time"]')).toBe(
+        '2024-02-01T14:20:00Z'
+      );
+
+      rerender({ modifiedTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:modified_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('cleans up article:expiration_time when prop transitions to undefined', () => {
+      const { rerender } = renderHook(
+        (props: { expirationTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { expirationTime: '2025-12-31T23:59:59Z' },
+        }
+      );
+
+      expect(getMetaContent('meta[property="article:expiration_time"]')).toBe(
+        '2025-12-31T23:59:59Z'
+      );
+
+      rerender({ expirationTime: undefined });
+
+      expect(
+        document.querySelector(
+          `meta[property="article:expiration_time"][${SEO_MARKER}="true"]`
+        )
+      ).toBeNull();
+    });
+
+    it('preserves a user-authored article:published_time meta when the prop disappears', () => {
+      const userPublishedTime = document.createElement('meta');
+      userPublishedTime.setAttribute('property', 'article:published_time');
+      userPublishedTime.setAttribute('content', '2020-01-01T00:00:00Z');
+      document.head.appendChild(userPublishedTime);
+
+      const { rerender } = renderHook(
+        (props: { publishedTime?: string } = {}) =>
+          useSEO({ ...props, autoCanonical: false, enableWarnings: false }),
+        {
+          initialProps: { publishedTime: '2024-01-15T10:30:00Z' },
+        }
+      );
+
+      rerender({ publishedTime: undefined });
+
+      // User-authored element stays; it never gained the SEO marker, so the
+      // cleanup-on-unset branch (which only targets marked elements) leaves
+      // it untouched.
+      expect(document.head.contains(userPublishedTime)).toBe(true);
+      expect(userPublishedTime.getAttribute(SEO_MARKER)).toBeNull();
+    });
   });
 
   describe('Canonical and Links', () => {

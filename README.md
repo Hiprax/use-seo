@@ -325,6 +325,12 @@ identifiers (e.g., `"Jane Doe"`) pass through unchanged. Multi-value tags
 follow the same cleanup-on-removal pattern as `ogImages` and
 `ogLocaleAlternates`.
 
+The single-value fields — `articleSection`, `publishedTime`,
+`modifiedTime`, and `expirationTime` — are cleaned up on re-render when
+their prop becomes unset, so navigating from an article page to a
+non-article page in the same component instance does not leave stale
+`article:*` tags behind for crawlers (parity with `og:locale`/`og:url`).
+
 ### Twitter Cards
 
 ```tsx
@@ -395,6 +401,11 @@ useSEO({
   expirationTime: '2025-12-31T23:59:59Z',
 });
 ```
+
+Stale tags are cleaned up on re-render when the corresponding prop is
+removed — unsetting `publishedTime` (or `modifiedTime` / `expirationTime`)
+on a later render removes the matching hook-created `article:*_time` meta
+instead of leaving it in the DOM.
 
 ### Robots Directives
 
