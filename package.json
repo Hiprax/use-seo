@@ -1,6 +1,6 @@
 {
   "name": "@hiprax/use-seo",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "A production-ready React hook for managing SEO and social meta tags with full TypeScript support",
   "author": "Hiprax",
   "license": "MIT",
@@ -83,7 +83,7 @@
     "react-dom": ">=16.8.0"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.2",
+    "@arethetypeswrong/cli": "^0.18.5",
     "@eslint/js": "^10.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -112,7 +112,7 @@
   },
   "overrides": {
     "@babel/core": "^7.29.7",
-    "js-yaml": "^3.15.0",
+    "js-yaml": "^3.15.2",
     "ws": "^8.21.0"
   }
 }

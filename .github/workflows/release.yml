@@ -4,39 +4,73 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Recovery: re-run a release from its tag, never from a branch, so the
+  # provenance attestation always names the tagged commit that was built:
+  #   gh workflow run release.yml --ref vX.Y.Z
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to publish (must already exist, e.g. v0.3.0). Leave blank to publish from the current default branch.'
-        required: false
-        type: string
 
-permissions:
-  contents: write
-  id-token: write
+# Nothing is granted at the workflow level. Each job requests exactly what it
+# needs, so the OIDC publish credential exists only in the job that publishes.
+permissions: {}
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-jobs:
-  publish:
-    name: Publish to npm
-    runs-on: ubuntu-latest
+defaults:
+  run:
+    shell: bash
 
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  verify:
+    name: Verify and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - name: Require a vX.Y.Z tag ref
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Releases run only from a vX.Y.Z tag (got $GITHUB_REF_TYPE '$RELEASE_TAG'). Re-run with: gh workflow run release.yml --ref vX.Y.Z"
+            exit 1
+          fi
+
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$RELEASE_TAG ($(git rev-parse --short HEAD)) is not on origin/main. Only merged commits are published."
+            exit 1
+          fi
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22.x
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
+          node-version: 24.x
+          # Release builds never restore a dependency cache, so a poisoned
+          # cache can never reach a published artifact.
+          package-manager-cache: false
+
+      - name: Verify package.json version matches tag
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "Tag: $RELEASE_TAG, package.json: $PKG_VERSION"
+          if [ "${RELEASE_TAG#v}" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version (${RELEASE_TAG#v}) does not match package.json version ($PKG_VERSION). Refusing to publish."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -59,61 +93,116 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Verify package.json version matches tag
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+      - name: Pack
+        id: pack
         run: |
-          REF="${{ inputs.tag || github.ref_name }}"
-          TAG_VERSION="${REF#v}"
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          echo "Tag version: $TAG_VERSION"
-          echo "Package version: $PKG_VERSION"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION). Refusing to publish."
-            exit 1
-          fi
+          TARBALL="$(npm pack --json | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].filename)")"
+          SHA256="$(sha256sum "$TARBALL" | cut -d' ' -f1)"
+          echo "Packed $TARBALL (sha256 $SHA256)"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
-      - name: Verify tarball contents
-        run: npm pack --dry-run
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Publish to npm with provenance
-        run: npm publish --provenance --access public
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # npm trusted publishing (OIDC) and the provenance signature
+    # No checkout and no dependency install in this job: it publishes the exact
+    # tarball the verify job built and tested, and nothing else runs here.
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+          # No registry-url: npm's default registry is registry.npmjs.org, and
+          # without a token placeholder a failed OIDC exchange fails loudly
+          # with ENEEDAUTH instead of a misleading 404.
+
+      - name: Verify npm supports trusted publishing (>= 11.5.1)
+        run: |
+          NPM_VERSION="$(npm --version)"
+          echo "node $(node --version), npm $NPM_VERSION"
+          node -e "const [a, b, c] = process.argv[1].split('.').map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)" "$NPM_VERSION" \
+            || { echo "::error::npm $NPM_VERSION < 11.5.1 cannot use npm trusted publishing (OIDC)."; exit 1; }
+
+      - name: Download verified package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+
+      - name: Verify package checksum
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TARBALL: ${{ needs.verify.outputs.tarball }}
+          SHA256: ${{ needs.verify.outputs.sha256 }}
+        run: echo "$SHA256  $TARBALL" | sha256sum --check --strict
 
-      - name: Extract changelog notes for this release
-        id: changelog
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+      # npm trusted publishing (OIDC): this workflow uses no npm token.
+      # npmjs.com trusted publisher: Hiprax/use-seo, workflow release.yml.
+      - name: Publish to npm with provenance
+        env:
+          TARBALL: ${{ needs.verify.outputs.tarball }}
+        run: npm publish "./$TARBALL" --provenance --access public
+
+      - name: Show npm OIDC diagnostics
+        if: failure()
+        run: grep -h ' oidc ' ~/.npm/_logs/*-debug-0.log || echo "No npm OIDC log lines were recorded."
+
+  github-release:
+    name: Create GitHub Release
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Extract release notes from CHANGELOG.md
         run: |
-          REF="${{ inputs.tag || github.ref_name }}"
-          VERSION="${REF#v}"
-          notes="$(awk -v ver="$VERSION" '
+          VERSION="${RELEASE_TAG#v}"
+          awk -v ver="$VERSION" '
             $0 ~ "^## \\["ver"\\]" { capture = 1; next }
             capture && /^## \[/ { exit }
             capture { print }
-          ' CHANGELOG.md)"
-          if [ -z "$notes" ]; then
-            notes="See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
+            echo "See [CHANGELOG.md](https://github.com/$GITHUB_REPOSITORY/blob/main/CHANGELOG.md) for details." > "$RUNNER_TEMP/release-notes.md"
           fi
-          {
-            echo "notes<<__EOF__"
-            printf "%s\n" "$notes"
-            echo "__EOF__"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          name: ${{ inputs.tag || github.ref_name }}
-          body: ${{ steps.changelog.outputs.notes }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          body_path: ${{ runner.temp }}/release-notes.md
           draft: false
           prerelease: false
 
       - name: Summary
+        env:
+          TARBALL: ${{ needs.verify.outputs.tarball }}
+          SHA256: ${{ needs.verify.outputs.sha256 }}
         run: |
           PKG_NAME="$(node -p "require('./package.json').name")"
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          echo "Published $PKG_NAME@$PKG_VERSION" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "https://www.npmjs.com/package/$PKG_NAME/v/$PKG_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "Published $PKG_NAME@$PKG_VERSION with npm trusted publishing (OIDC) and provenance."
+            echo ""
+            echo "https://www.npmjs.com/package/$PKG_NAME/v/$PKG_VERSION"
+            echo ""
+            echo "Tarball: $TARBALL (sha256 $SHA256)"
+          } >> "$GITHUB_STEP_SUMMARY"
