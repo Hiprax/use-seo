@@ -45,6 +45,7 @@ A production-ready React hook for managing SEO meta tags, Open Graph, Twitter Ca
 - [Best Practices](#best-practices)
 - [Development](#development)
 - [Coverage](#coverage)
+- [Release Integrity](#release-integrity)
 - [Browser Support](#browser-support)
 - [Contributing](#contributing)
 - [License](#license)
@@ -1162,6 +1163,28 @@ locally:
 
 ```bash
 npm run test:coverage
+```
+
+## Release Integrity
+
+Since v0.3.6, every release is built, tested and published by the
+[`release.yml`](https://github.com/Hiprax/use-seo/blob/main/.github/workflows/release.yml)
+GitHub Actions workflow from an annotated `vX.Y.Z` tag on `main`, through
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OpenID
+Connect). The workflow holds no npm access token: it authenticates with a
+short-lived OIDC credential, and the job that publishes runs no third-party
+dependency code. It uploads the exact tarball that the verify job built and
+tested.
+
+Every version published since v0.3.0 carries a signed
+[provenance attestation](https://docs.npmjs.com/generating-provenance-statements)
+that links the published tarball to the commit and workflow run that produced
+it. The package has no runtime dependencies of its own (React and React DOM are
+peer dependencies), so it adds nothing else to your dependency tree. To check
+the signatures and attestations of what you installed:
+
+```bash
+npm audit signatures
 ```
 
 ## Browser Support
